@@ -41,7 +41,7 @@ data files required to render the supplementary notebooks.
 To create the archive for upload:
 
 ```bash
-tar -czvf aealbopictus_autogeny_data.tar.gz \
+tar -czvf aealbo_autogeny_data.tar.gz \
   genotype_calls/ \
   data/files/ \
   data/genome/scaffold_sizes.txt

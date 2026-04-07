@@ -1,15 +1,15 @@
 {
   "task": "render-all-notebooks-and-deploy-pages",
   "description": "Render all Aedes albopictus autogeny supplementary notebooks and deploy to GitHub Pages",
-  "repo": "cosmelab/aealbopictus_autogeny",
-  "container": "ghcr.io/cosmelab/aealbopictus_autogeny:latest",
+  "repo": "cosmelab/aealbo_autogeny",
+  "container": "ghcr.io/cosmelab/aealbo_autogeny:latest",
   "runtime": "singularity",
-  "singularity_image": "aealbopictus_autogeny_latest.sif",
+  "singularity_image": "aealbo_autogeny_latest.sif",
   "workdir": "/workspace",
   "output_dir": "docs/html/",
   "pre_render_steps": [
-    "git clone https://github.com/cosmelab/aealbopictus_autogeny && cd aealbopictus_autogeny",
-    "singularity pull docker://ghcr.io/cosmelab/aealbopictus_autogeny:latest",
+    "git clone https://github.com/cosmelab/aealbo_autogeny && cd aealbo_autogeny",
+    "singularity pull docker://ghcr.io/cosmelab/aealbo_autogeny:latest",
     "rsync data from Dropbox OR download from Zenodo [DOI: TBD]"
   ],
   "blockers": {
@@ -34,7 +34,7 @@
     {"notebook": "File_S7.Frequencies.Rmd", "needs": "file7.* + SnpEff output"},
     {"notebook": "File_S8.Fst.Rmd", "needs": "file7.*"}
   ],
-  "render_command": "singularity exec --bind $PWD:/workspace --pwd /workspace aealbopictus_autogeny_latest.sif Rscript -e \"rmarkdown::render('notebooks/{notebook}', output_dir='docs/html/')\"",
+  "render_command": "singularity exec --bind $PWD:/workspace --pwd /workspace aealbo_autogeny_latest.sif Rscript -e \"rmarkdown::render('notebooks/{notebook}', output_dir='docs/html/')\"",
   "convenience_script": "bash scripts/render_notebooks.sh",
   "post_render_steps": [
     "git add docs/html/",
@@ -42,5 +42,5 @@
     "git push origin main"
   ],
   "enable_github_pages": "Settings → Pages → Source: main branch, /docs folder → Save",
-  "verification_url": "https://cosmelab.github.io/aealbopictus_autogeny/html/File_S1.Quality_control.html"
+  "verification_url": "https://cosmelab.github.io/aealbo_autogeny/html/File_S1.Quality_control.html"
 }

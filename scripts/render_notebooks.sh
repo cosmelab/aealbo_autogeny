@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONTAINER="ghcr.io/cosmelab/aealbopictus_autogeny:latest"
+CONTAINER="ghcr.io/cosmelab/aealbo_autogeny:latest"
 REPO_DIR=$(realpath "$(dirname "$0")/..")
-SIF="${REPO_DIR}/aealbopictus_autogeny_latest.sif"
+SIF="${REPO_DIR}/aealbo_autogeny_latest.sif"
 FORCE=0
 
 # Parse flags

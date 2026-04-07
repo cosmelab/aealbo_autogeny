@@ -10,17 +10,17 @@ Spark high-performance computing cluster using Singularity.
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/cosmelab/aealbopictus_autogeny
-cd aealbopictus_autogeny
+git clone https://github.com/cosmelab/aealbo_autogeny
+cd aealbo_autogeny
 ```
 
 ### 2. Pull the container image
 
 ```bash
-singularity pull docker://ghcr.io/cosmelab/aealbopictus_autogeny:latest
+singularity pull docker://ghcr.io/cosmelab/aealbo_autogeny:latest
 ```
 
-This produces `aealbopictus_autogeny_latest.sif` in the current directory.
+This produces `aealbo_autogeny_latest.sif` in the current directory.
 
 ### 3. Sync input data
 
@@ -34,8 +34,8 @@ Option B — download from Zenodo (use when DOI is published):
 
 ```bash
 # Replace DOI_HERE with the actual Zenodo DOI when available
-wget https://zenodo.org/record/DOI_HERE/files/aealbopictus_autogeny_data.tar.gz
-tar -xzvf aealbopictus_autogeny_data.tar.gz
+wget https://zenodo.org/record/DOI_HERE/files/aealbo_autogeny_data.tar.gz
+tar -xzvf aealbo_autogeny_data.tar.gz
 ```
 
 ---
@@ -47,7 +47,7 @@ Replace `NOTEBOOK.Rmd` with the target notebook filename.
 
 ```bash
 singularity exec --bind $PWD:/workspace --pwd /workspace \
-  aealbopictus_autogeny_latest.sif \
+  aealbo_autogeny_latest.sif \
   Rscript -e "rmarkdown::render('notebooks/NOTEBOOK.Rmd', output_dir='docs/html/')"
 ```
 
@@ -147,7 +147,7 @@ git push origin main
 
 After pushing, enable GitHub Pages to serve the HTML notebooks publicly:
 
-1. Go to: https://github.com/cosmelab/aealbopictus_autogeny/settings/pages
+1. Go to: https://github.com/cosmelab/aealbo_autogeny/settings/pages
 2. Under **Source**, select: branch `main`, folder `/docs` → click **Save**
 3. Wait approximately 2 minutes for deployment to complete
-4. Verify: https://cosmelab.github.io/aealbopictus_autogeny/
+4. Verify: https://cosmelab.github.io/aealbo_autogeny/
