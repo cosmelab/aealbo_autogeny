@@ -1,0 +1,87 @@
+{
+  "title": "aealbo_autogeny: Supplementary analysis code for Sturiale et al., Aedes albopictus autogeny",
+  "upload_type": "software",
+  "description": "R Markdown notebooks and CLI pipeline for GWAS analysis of autogeny in Aedes albopictus. Includes quality control, selection scans (OutFLANK, pcadapt), linkage disequilibrium network analysis (LDna), functional annotation, and population genetics. Container environment: ghcr.io/cosmelab/aealbo_autogeny.",
+  "license": "mit",
+  "creators": [
+    {
+      "name": "Sturiale, Stephanie L.",
+      "affiliation": "Georgetown University"
+    },
+    {
+      "name": "Heilig, Martha C.",
+      "affiliation": "Georgetown University"
+    },
+    {
+      "name": "Aardema, Matthew L.",
+      "affiliation": "Montclair State University"
+    },
+    {
+      "name": "Cosme, Luciano V.",
+      "affiliation": "Georgetown University"
+    },
+    {
+      "name": "Corley, M.",
+      "affiliation": "Georgetown University"
+    },
+    {
+      "name": "Marzec, S.",
+      "affiliation": "Georgetown University"
+    },
+    {
+      "name": "Hamilton, M.",
+      "affiliation": "Georgetown University"
+    },
+    {
+      "name": "Vizcarra, D.",
+      "affiliation": "Georgetown University"
+    },
+    {
+      "name": "Anderson, L.",
+      "affiliation": "Georgetown University"
+    },
+    {
+      "name": "Holzapfel, Christina M.",
+      "affiliation": "University of Oregon"
+    },
+    {
+      "name": "Bradshaw, William E.",
+      "affiliation": "University of Oregon"
+    },
+    {
+      "name": "Meuti, Megan E.",
+      "affiliation": "Ohio State University"
+    },
+    {
+      "name": "Caccone, Adalgisa",
+      "affiliation": "Yale University"
+    },
+    {
+      "name": "Armbruster, Peter A.",
+      "affiliation": "Georgetown University"
+    }
+  ],
+  "keywords": [
+    "Aedes albopictus",
+    "autogeny",
+    "GWAS",
+    "SNP chip",
+    "linkage disequilibrium",
+    "selection scan",
+    "OutFLANK",
+    "pcadapt",
+    "LDna",
+    "population genetics",
+    "mosquito"
+  ],
+  "related_identifiers": [
+    {
+      "relation": "isSupplementTo",
+      "identifier": "10.5281/zenodo.XXXXXXX",
+      "scheme": "doi",
+      "resource_type": "dataset"
+    }
+  ],
+  "access_right": "open",
+  "language": "eng"
+}

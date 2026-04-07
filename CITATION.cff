@@ -1,0 +1,52 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite both the paper and the software archive."
+type: software
+title: "aealbo_autogeny: Supplementary analysis code for Sturiale et al., Aedes albopictus autogeny"
+repository-code: "https://github.com/cosmelab/aealbo_autogeny"
+license: MIT
+version: "1.0.0"
+date-released: "2026-04-07"
+authors:
+  - family-names: Sturiale
+    given-names: Stephanie L.
+    affiliation: Georgetown University
+  - family-names: Heilig
+    given-names: Martha C.
+    affiliation: Georgetown University
+  - family-names: Aardema
+    given-names: Matthew L.
+    affiliation: Montclair State University
+  - family-names: Cosme
+    given-names: Luciano V.
+    affiliation: Georgetown University
+  - family-names: Holzapfel
+    given-names: Christina M.
+    affiliation: University of Oregon
+  - family-names: Bradshaw
+    given-names: William E.
+    affiliation: University of Oregon
+  - family-names: Meuti
+    given-names: Megan E.
+    affiliation: Ohio State University
+  - family-names: Caccone
+    given-names: Adalgisa
+    affiliation: Yale University
+  - family-names: Armbruster
+    given-names: Peter A.
+    affiliation: Georgetown University
+preferred-citation:
+  type: article
+  title: "[Title — update upon acceptance]"
+  journal: BMC Biology
+  year: 2026
+  authors:
+    - family-names: Sturiale
+      given-names: Stephanie L.
+    - family-names: Heilig
+      given-names: Martha C.
+    - family-names: Aardema
+      given-names: Matthew L.
+    - family-names: Cosme
+      given-names: Luciano V.
+    - family-names: Armbruster
+      given-names: Peter A.

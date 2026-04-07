@@ -19,25 +19,56 @@ This repository contains the supplementary R Markdown notebooks for [Sturiale et
 | File S7 | Allele and genotype frequencies | [HTML](https://cosmelab.github.io/aealbo_autogeny/html/File_S7.Frequencies.html) |
 | File S8 | FST estimations | [HTML](https://cosmelab.github.io/aealbo_autogeny/html/File_S8.Fst.html) |
 
-## Quick Start
+## Reproducing the Analysis
+
+### Requirements
+
+- Docker ≥ 20.x **or** Singularity ≥ 3.x (for HPC)
+- ~10 GB disk space (container + data)
+- `wget` (for data download)
+
+### Step 1 — Clone the repo
 
 ```bash
-# 1. Clone
 git clone https://github.com/cosmelab/aealbo_autogeny && cd aealbo_autogeny
-# 2. Pull container (Singularity / HPC)
-singularity pull docker://ghcr.io/cosmelab/aealbo_autogeny:latest
-# OR Docker (local)
-docker pull ghcr.io/cosmelab/aealbo_autogeny:latest
-# 3. Render a notebook
-singularity exec --bind $PWD:/workspace --pwd /workspace aealbo_autogeny_latest.sif \
-  Rscript -e "rmarkdown::render('notebooks/File_S1.Quality_control.Rmd', output_dir='docs/html/')"
 ```
 
-Note: See `scripts/render_notebooks.sh` for full pipeline and `docs/spark_instructions.md` for HPC.
+### Step 2 — Download data
+
+```bash
+bash scripts/00_download_data.sh
+```
+
+This downloads VCF files and annotation inputs from Zenodo [DOI: TBD]. The reference genome (AalbF3, ~1.9 GB) is fetched separately from NCBI — see the script's printed instructions.
+
+### Step 3 — Pull the container
+
+```bash
+# Docker (local workstation)
+docker pull ghcr.io/cosmelab/aealbo_autogeny:latest
+
+# Singularity (HPC / Spark)
+singularity pull docker://ghcr.io/cosmelab/aealbo_autogeny:latest
+```
+
+### Step 4 — Render notebooks
+
+```bash
+# Render all notebooks in dependency order (auto-detects Docker vs Singularity)
+bash scripts/render_notebooks.sh
+
+# Render a single notebook
+docker run --rm -v $PWD:/workspace --workdir /workspace \
+    ghcr.io/cosmelab/aealbo_autogeny:latest \
+    bash -c 'eval "$(pixi shell-hook)" && Rscript -e \
+    "rmarkdown::render(\"notebooks/File_S1.Quality_control.Rmd\", output_dir=\"docs/html/\")"'
+```
+
+See `docs/spark_instructions.md` for the full HPC workflow and `docs/spark_agent_task.json` for agent-driven rendering.
 
 ## Data Availability
 
-Raw genotype data (VCF files) and supporting files are available at Zenodo [DOI: TBD — will be updated upon acceptance]. Reference genome AalbF3 is available at NCBI (GCA_006496715.1). See `data/README.md` for complete data provenance.
+Input data (VCF files, SNP chip annotations, gene annotations) are archived at Zenodo [DOI: TBD — updated upon acceptance]. Reference genome AalbF3 is available at NCBI (GCA_006496715.1). See `data/README.md` for complete provenance and `docs/zenodo_manifest.md` for the full archive contents.
 
 ## Citation
 
