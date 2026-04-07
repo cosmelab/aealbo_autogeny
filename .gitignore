@@ -29,6 +29,9 @@ Thumbs.db
 # Container images
 *.sif
 
+# Internal task reports
+tasks/
+
 # Debug scripts
 scripts/debug/
 
