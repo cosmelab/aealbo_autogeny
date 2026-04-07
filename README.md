@@ -123,7 +123,7 @@ Requires the container and data (see Reproducing the Analysis above). The pipeli
 
 ## Data Availability
 
-Input data (VCF files, SNP chip annotations, gene annotations) are archived at Zenodo [DOI: TBD — updated upon acceptance]. Reference genome AalbF3 is available at NCBI (GCA_006496715.1). See `data/README.md` for complete provenance and `docs/zenodo_manifest.md` for the full archive contents.
+Input data (VCF files, SNP chip annotations, gene annotations) are archived at Zenodo ([DOI: 10.5281/zenodo.19451616](https://zenodo.org/records/19451616)). Reference genome AalbF3 is available at NCBI (GCA_006496715.1). See `data/README.md` for complete provenance and `docs/zenodo_manifest.md` for the full archive contents.
 
 ## Citation
 

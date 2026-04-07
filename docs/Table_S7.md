@@ -17,5 +17,5 @@ and rendered as HTML at the [GitHub Pages site](https://cosmelab.github.io/aealb
 
 **Note:** All analyses were performed using a containerized environment
 (`ghcr.io/cosmelab/aealbo_autogeny:latest`, built with [pixi](https://pixi.sh)).
-Raw genotype data are available at Zenodo [DOI: TBD].
+Raw genotype data are available at Zenodo ([DOI: 10.5281/zenodo.19451616](https://zenodo.org/records/19451616)).
 Reference genome: *Aedes albopictus* AalbF3 (NCBI: GCA_006496715.1).

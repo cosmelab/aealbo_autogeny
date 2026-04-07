@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Download input data for aealbo_autogeny analysis
-# Data archived at Zenodo: https://zenodo.org/record/XXXXXXX
-# [DOI: 10.5281/zenodo.XXXXXXX — update when Zenodo record is published]
+# Data archived at Zenodo: https://zenodo.org/records/19451616
+# DOI: 10.5281/zenodo.19451616
 set -euo pipefail
 
-ZENODO_RECORD="XXXXXXX"   # replace with actual Zenodo record ID after upload
+ZENODO_RECORD="19451616"
 DATA_DIR="${1:-data}"      # optional: pass target directory as first argument
 
 BASE_URL="https://zenodo.org/record/${ZENODO_RECORD}/files"
