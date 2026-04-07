@@ -16,67 +16,133 @@
       line-height: 1.6;
     }
 
-    /* Header */
-    header {
-      background: #1a2744;
+    /* ── Hero ───────────────────────────────────────────────────────── */
+    .hero {
+      position: relative;
+      background: #0e1a33;
       color: #fff;
-      padding: 3rem 2rem 2.5rem;
+      padding: 5rem 2rem 4rem;
       text-align: center;
+      overflow: hidden;
+      isolation: isolate;
     }
-    header h1 {
-      font-size: 2rem;
+
+    /* UCR sunset photo layer — Ken Burns parallax */
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: url('images/ucr_sunset.jpg');
+      background-size: cover;
+      background-position: center;
+      opacity: 0.45;
+      z-index: -2;
+      animation: enhanced-parallax 15s ease-in-out infinite alternate;
+      transform: scale(1.1);
+    }
+
+    @keyframes enhanced-parallax {
+      0%   { transform: scale(1.1)  translateY(0px);   background-position: center 35%; }
+      50%  { transform: scale(1.15) translateY(-15px); background-position: center 50%; }
+      100% { transform: scale(1.2)  translateY(-30px); background-position: center 65%; }
+    }
+
+    /* Sun-rays overlay */
+    .hero::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 120%;
+      height: 120%;
+      background: radial-gradient(circle at center,
+        transparent 0%,
+        rgba(255,184,108,0.08) 30%,
+        rgba(255,184,108,0.15) 40%,
+        transparent 60%);
+      transform: translate(-50%, -50%);
+      z-index: -1;
+      animation: sun-rays 8s ease-in-out infinite;
+    }
+
+    @keyframes sun-rays {
+      0%, 100% { opacity: 0.3; transform: translate(-50%,-50%) rotate(0deg)   scale(1);   }
+      50%       { opacity: 0.6; transform: translate(-50%,-50%) rotate(180deg) scale(1.2); }
+    }
+
+    @media (max-width: 768px) {
+      .hero::before {
+        animation: mobile-zoom 10s ease-in-out infinite alternate !important;
+      }
+      @keyframes mobile-zoom {
+        from { transform: scale(1); }
+        to   { transform: scale(1.15); }
+      }
+    }
+
+    /* Hero content above layers */
+    .hero-content { position: relative; z-index: 1; }
+
+    .hero h1 {
+      font-size: 2.25rem;
       font-weight: 700;
       letter-spacing: -0.02em;
       margin-bottom: 0.5rem;
+      /* gradient text */
+      background: linear-gradient(135deg, #ffffff 0%, #f0c97a 60%, #f9e0a8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow: none;
     }
-    header h1 em {
+    .hero h1 em {
       font-style: italic;
+      -webkit-text-fill-color: transparent;
     }
-    header .subtitle {
+    .hero .subtitle {
       font-size: 1.05rem;
-      color: #a8bbd6;
-      margin-bottom: 1.5rem;
+      color: rgba(200,220,240,0.85);
+      margin-bottom: 1.75rem;
     }
+
+    /* GitHub badge */
     .repo-badge {
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
       background: rgba(255,255,255,0.12);
-      border: 1px solid rgba(255,255,255,0.25);
+      border: 1px solid rgba(255,255,255,0.3);
       color: #fff;
       text-decoration: none;
-      padding: 0.45rem 1rem;
+      padding: 0.45rem 1.1rem;
       border-radius: 6px;
       font-size: 0.9rem;
-      transition: background 0.2s;
+      transition: background 0.2s, border-color 0.2s;
+      backdrop-filter: blur(4px);
     }
     .repo-badge:hover {
       background: rgba(255,255,255,0.22);
+      border-color: rgba(255,255,255,0.5);
     }
-    .repo-badge svg {
-      width: 18px;
-      height: 18px;
-      fill: currentColor;
-    }
+    .repo-badge svg { width: 18px; height: 18px; fill: currentColor; }
 
-    /* Main content */
+    /* ── Main ───────────────────────────────────────────────────────── */
     main {
-      max-width: 960px;
-      margin: 2.5rem auto;
+      max-width: 980px;
+      margin: 2.75rem auto;
       padding: 0 1.25rem;
     }
 
-    /* Section heading */
     .section-label {
-      font-size: 0.8rem;
-      font-weight: 600;
+      font-size: 0.78rem;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #7f8c9a;
+      letter-spacing: 0.1em;
+      color: #8a9ab0;
       margin-bottom: 1.25rem;
     }
 
-    /* Grid */
+    /* ── Floating cards ─────────────────────────────────────────────── */
     .notebook-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -86,21 +152,23 @@
       .notebook-grid { grid-template-columns: 1fr; }
     }
 
-    /* Cards */
     .card {
       background: #fff;
-      border: 1px solid #dce3ef;
-      border-radius: 10px;
+      border: 1px solid rgba(26,39,68,0.12);
+      border-radius: 12px;
       padding: 1.4rem 1.5rem 1.25rem;
       display: flex;
       flex-direction: column;
       gap: 0.6rem;
-      transition: box-shadow 0.2s, border-color 0.2s;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 8px rgba(26,39,68,0.06);
     }
     .card:hover {
-      box-shadow: 0 4px 18px rgba(26,39,68,0.10);
-      border-color: #b0bfd8;
+      transform: translateY(-3px) scale(1.01);
+      box-shadow: 0 0 22px rgba(26,39,68,0.18);
+      border-color: rgba(26,39,68,0.28);
     }
+
     .card-header {
       display: flex;
       align-items: center;
@@ -118,7 +186,6 @@
       flex-shrink: 0;
       color: #fff;
     }
-    /* Distinct colors per badge */
     .badge-s1 { background: #2a6496; }
     .badge-s2 { background: #1a7a4a; }
     .badge-s3 { background: #7b4fa6; }
@@ -145,23 +212,122 @@
       background: #1a2744;
       color: #fff;
       text-decoration: none;
-      border-radius: 5px;
+      border-radius: 6px;
       font-size: 0.82rem;
       font-weight: 500;
       align-self: flex-start;
-      transition: background 0.2s;
+      transition: background 0.2s, transform 0.15s;
     }
-    .card-link:hover { background: #253a6a; }
+    .card-link:hover { background: #253a6a; transform: translateX(2px); }
 
-    /* Footer */
+    /* ── CLI block ──────────────────────────────────────────────────── */
+    .cli-section { margin-top: 2.75rem; }
+
+    .cli-command {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      background: #0f1b2d;
+      color: #c8ddf0;
+      border-radius: 10px;
+      padding: 1.1rem 1.5rem;
+      font-size: 0.82rem;
+      line-height: 2;
+      margin-bottom: 1.25rem;
+      overflow-x: auto;
+    }
+    .cli-command .comment { color: #5d7a9a; }
+
+    .cli-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+      background: #fff;
+      border: 1px solid #dce3ef;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(26,39,68,0.06);
+    }
+    .cli-table thead tr { background: #1a2744; color: #fff; }
+    .cli-table th {
+      padding: 0.65rem 1rem;
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.82rem;
+    }
+    .cli-table tbody tr:nth-child(even) { background: #f9fbfd; }
+    .cli-table td {
+      padding: 0.55rem 1rem;
+      border-top: 1px solid #dce3ef;
+      vertical-align: middle;
+    }
+    .cli-table td:first-child { font-weight: 700; }
+    .cli-table td code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.8rem;
+      color: #1a2744;
+    }
+    .step-01 { color: #2a6496; }
+    .step-02 { color: #1a7a4a; }
+    .step-03 { color: #c0392b; }
+    .step-04 { color: #117a65; }
+    .step-05 { color: #d68910; }
+    .step-06 { color: #6d4c41; }
+    .warn { color: #c0392b; font-size: 0.78rem; }
+
+    /* ── Reproduce pills ────────────────────────────────────────────── */
+    .reproduce-section { margin-top: 2.75rem; }
+
+    .pills {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+    }
+    @media (max-width: 580px) { .pills { grid-template-columns: 1fr; } }
+
+    .pill {
+      background: #fff;
+      border: 1px solid rgba(26,39,68,0.12);
+      border-radius: 12px;
+      padding: 1.25rem 1.4rem;
+      text-decoration: none;
+      color: #1a2744;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 8px rgba(26,39,68,0.05);
+    }
+    .pill:hover {
+      transform: translateY(-3px) scale(1.02);
+      box-shadow: 0 0 18px rgba(26,39,68,0.15);
+      border-color: rgba(26,39,68,0.3);
+    }
+    .pill-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #8a9ab0;
+    }
+    .pill-name {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #1a2744;
+    }
+    .pill-desc {
+      font-size: 0.8rem;
+      color: #5a6a7a;
+      line-height: 1.45;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────────── */
     footer {
-      background: #1a2744;
+      background: #0f1b2d;
       color: #a8bbd6;
-      padding: 2rem;
+      padding: 2.25rem 2rem;
       margin-top: 3rem;
       font-size: 0.85rem;
       text-align: center;
-      line-height: 1.8;
+      line-height: 1.9;
     }
     footer strong { color: #d6e4f0; }
     footer code {
@@ -170,41 +336,49 @@
       border-radius: 4px;
       font-size: 0.82rem;
       color: #c8ddf0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
     footer .footer-note {
-      margin-top: 0.75rem;
+      margin-top: 0.6rem;
       font-style: italic;
-      color: #7a9ab8;
+      color: #6a8aaa;
       font-size: 0.8rem;
     }
+    footer a { color: #7ab0d8; text-decoration: none; }
+    footer a:hover { color: #a8cceb; }
   </style>
 </head>
 <body>
 
-<header>
-  <h1>Autogeny in <em>Aedes albopictus</em></h1>
-  <p class="subtitle">Supplementary Analysis Notebooks &mdash; Sturiale et al., BMC Biology</p>
-  <a class="repo-badge"
-     href="https://github.com/cosmelab/aealbo_autogeny"
-     target="_blank" rel="noopener">
-    <!-- GitHub mark SVG -->
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
-               0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
-               -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
-               .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95
-               0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12
-               0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27
-               1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
-               .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95
-               .29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2
-               0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-    </svg>
-    cosmelab/aealbo_autogeny
-  </a>
+<!-- ── Hero ─────────────────────────────────────────────────────────── -->
+<header class="hero">
+  <div class="hero-content">
+    <h1>Autogeny in <em>Aedes albopictus</em></h1>
+    <p class="subtitle">Supplementary Analysis Notebooks &mdash; Sturiale et al., <em>BMC Biology</em></p>
+    <a class="repo-badge"
+       href="https://github.com/cosmelab/aealbo_autogeny"
+       target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+                 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+                 -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+                 .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95
+                 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12
+                 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27
+                 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
+                 .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95
+                 .29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2
+                 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+      </svg>
+      cosmelab/aealbo_autogeny
+    </a>
+  </div>
 </header>
 
+<!-- ── Main ──────────────────────────────────────────────────────────── -->
 <main>
+
+  <!-- Supplementary Notebooks -->
   <p class="section-label">Supplementary Notebooks</p>
   <div class="notebook-grid">
 
@@ -282,91 +456,122 @@
 
   </div>
 
-  <div style="margin-top: 2.5rem;">
+  <!-- CLI Pipeline -->
+  <div class="cli-section">
     <p class="section-label">CLI Analysis Pipeline</p>
     <p style="font-size:0.875rem; color:#5a6a7a; margin-bottom:1.25rem;">
       Run the full analysis from the command line — no notebooks needed.
       Each step maps to its supplementary notebook.
       See <a href="https://github.com/cosmelab/aealbo_autogeny/blob/main/scripts/README.md"
-              style="color:#1a2744;">scripts/README.md</a> for details.
+              style="color:#1a2744; font-weight:500;">scripts/README.md</a> for details.
     </p>
-    <div style="font-family:monospace; background:#1a2744; color:#c8ddf0;
-                border-radius:8px; padding:1rem 1.5rem; font-size:0.82rem; line-height:2;">
-      <span style="color:#7a9ab8;"># Dry run — see what's pending</span><br>
+    <div class="cli-command">
+      <span class="comment"># Dry run — see what's pending</span><br>
       bash scripts/run_pipeline.sh --dry-run<br>
       <br>
-      <span style="color:#7a9ab8;"># Run all steps (skips completed)</span><br>
+      <span class="comment"># Run all steps (skips completed)</span><br>
       bash scripts/run_pipeline.sh
     </div>
 
-    <table style="width:100%; border-collapse:collapse; margin-top:1.25rem;
-                  font-size:0.875rem; background:#fff; border:1px solid #dce3ef;
-                  border-radius:8px; overflow:hidden;">
+    <table class="cli-table">
       <thead>
-        <tr style="background:#1a2744; color:#fff;">
-          <th style="padding:0.6rem 1rem; text-align:left; font-weight:600;">Step</th>
-          <th style="padding:0.6rem 1rem; text-align:left; font-weight:600;">Script</th>
-          <th style="padding:0.6rem 1rem; text-align:left; font-weight:600;">Output</th>
-          <th style="padding:0.6rem 1rem; text-align:left; font-weight:600;">Notebook</th>
+        <tr>
+          <th>Step</th>
+          <th>Script</th>
+          <th>Output</th>
+          <th>Notebook</th>
         </tr>
       </thead>
       <tbody>
-        <tr style="border-top:1px solid #dce3ef;">
-          <td style="padding:0.55rem 1rem; color:#2a6496; font-weight:600;">01</td>
-          <td style="padding:0.55rem 1rem; font-family:monospace;">01_qc/run_qc.sh</td>
-          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/quality_control/file7.*</td>
-          <td style="padding:0.55rem 1rem;">File S1</td>
+        <tr>
+          <td class="step-01">01</td>
+          <td><code>01_qc/run_qc.sh</code></td>
+          <td>output/quality_control/file7.*</td>
+          <td>File S1</td>
         </tr>
-        <tr style="border-top:1px solid #dce3ef; background:#f9fbfd;">
-          <td style="padding:0.55rem 1rem; color:#1a7a4a; font-weight:600;">02</td>
-          <td style="padding:0.55rem 1rem; font-family:monospace;">02_selection_scans/run_selection_scans.sh</td>
-          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/selection_scans/</td>
-          <td style="padding:0.55rem 1rem;">Files S2, S3</td>
+        <tr>
+          <td class="step-02">02</td>
+          <td><code>02_selection_scans/run_selection_scans.sh</code></td>
+          <td>output/selection_scans/</td>
+          <td>Files S2, S3</td>
         </tr>
-        <tr style="border-top:1px solid #dce3ef;">
-          <td style="padding:0.55rem 1rem; color:#c0392b; font-weight:600;">03</td>
-          <td style="padding:0.55rem 1rem; font-family:monospace;">05_ldna/run_ldna.sh</td>
-          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/ldna/ <span style="color:#c0392b;">~45 min, 32 GB</span></td>
-          <td style="padding:0.55rem 1rem;">Files S4a–S4e</td>
+        <tr>
+          <td class="step-03">03</td>
+          <td><code>05_ldna/run_ldna.sh</code></td>
+          <td>output/ldna/ <span class="warn">~45 min, 32 GB RAM</span></td>
+          <td>Files S4a–S4e</td>
         </tr>
-        <tr style="border-top:1px solid #dce3ef; background:#f9fbfd;">
-          <td style="padding:0.55rem 1rem; color:#117a65; font-weight:600;">04</td>
-          <td style="padding:0.55rem 1rem; font-family:monospace;">03_annotation/run_snpeff.sh</td>
-          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/snpeff/</td>
-          <td style="padding:0.55rem 1rem;">File S6</td>
+        <tr>
+          <td class="step-04">04</td>
+          <td><code>03_annotation/run_snpeff.sh</code></td>
+          <td>output/snpeff/</td>
+          <td>File S6</td>
         </tr>
-        <tr style="border-top:1px solid #dce3ef;">
-          <td style="padding:0.55rem 1rem; color:#d68910; font-weight:600;">05</td>
-          <td style="padding:0.55rem 1rem; font-family:monospace;">07_gene_expression/run_gene_expression.sh</td>
-          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/gene_expression/</td>
-          <td style="padding:0.55rem 1rem;">File S5</td>
+        <tr>
+          <td class="step-05">05</td>
+          <td><code>07_gene_expression/run_gene_expression.sh</code></td>
+          <td>output/gene_expression/</td>
+          <td>File S5</td>
         </tr>
-        <tr style="border-top:1px solid #dce3ef; background:#f9fbfd;">
-          <td style="padding:0.55rem 1rem; color:#6d4c41; font-weight:600;">06</td>
-          <td style="padding:0.55rem 1rem; font-family:monospace;">04_diversity/run_diversity.sh</td>
-          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/diversity/, output/fst/</td>
-          <td style="padding:0.55rem 1rem;">Files S7, S8</td>
+        <tr>
+          <td class="step-06">06</td>
+          <td><code>04_diversity/run_diversity.sh</code></td>
+          <td>output/diversity/, output/fst/</td>
+          <td>Files S7, S8</td>
         </tr>
       </tbody>
     </table>
   </div>
 
+  <!-- Reproduce -->
+  <div class="reproduce-section">
+    <p class="section-label">Reproduce the Analysis</p>
+    <div class="pills">
+      <a class="pill" href="https://github.com/cosmelab/aealbo_autogeny#option-a--pixi-local-no-container"
+         target="_blank" rel="noopener">
+        <span class="pill-label">Option A &mdash; Local</span>
+        <span class="pill-name">pixi</span>
+        <span class="pill-desc">Full R + Python environment via pixi — no container needed.</span>
+      </a>
+      <a class="pill" href="https://github.com/cosmelab/aealbo_autogeny#option-b--docker-local-workstation"
+         target="_blank" rel="noopener">
+        <span class="pill-label">Option B &mdash; Workstation</span>
+        <span class="pill-name">Docker</span>
+        <span class="pill-desc">Identical container environment on any machine with Docker.</span>
+      </a>
+      <a class="pill" href="https://github.com/cosmelab/aealbo_autogeny#option-c--singularity-hpc--spark"
+         target="_blank" rel="noopener">
+        <span class="pill-label">Option C &mdash; HPC</span>
+        <span class="pill-name">Singularity</span>
+        <span class="pill-desc">Container runtime for Spark and other HPC clusters.</span>
+      </a>
+    </div>
+  </div>
+
 </main>
 
+<!-- ── Footer ────────────────────────────────────────────────────────── -->
 <footer>
   <p>
     <strong>Citation:</strong> Sturiale et al. <em>BMC Biology</em> [in revision]
   </p>
   <p>
     <strong>Container:</strong> <code>ghcr.io/cosmelab/aealbo_autogeny:latest</code>
-    &nbsp;&nbsp;|&nbsp;&nbsp;
+    &nbsp;&middot;&nbsp;
     <strong>Data:</strong> Zenodo [DOI: TBD]
   </p>
   <p class="footer-note">
-    HTML notebooks rendered using the container environment.
-    Links activate after notebooks are rendered on HPC and committed.
+    HTML notebooks rendered using the container environment and hosted via GitHub Pages.
+    Links activate after notebooks are rendered on HPC and committed to
+    <a href="https://github.com/cosmelab/aealbo_autogeny/tree/main/docs/html">docs/html/</a>.
   </p>
 </footer>
+
+<!--
+  UCR sunset hero image: copy from Spark before committing
+    scp spark:~/projects/cosmelab-portal/static/images/backgrounds/background_home_header.jpg \
+        docs/images/ucr_sunset.jpg
+-->
 
 </body>
 </html>
