@@ -96,6 +96,31 @@ bash scripts/render_notebooks.sh   # auto-detects Singularity
 
 See `docs/spark_instructions.md` for the full HPC workflow and `docs/spark_agent_task.json` for agent-driven rendering.
 
+## CLI Analysis Pipeline
+
+For programmatic or HPC use, run the full pipeline from the command line without opening notebooks. Each step maps directly to its supplementary notebook.
+
+```bash
+# Check what's pending (dry run — nothing executes)
+bash scripts/run_pipeline.sh --dry-run
+
+# Run the full pipeline (skips already-completed steps)
+bash scripts/run_pipeline.sh
+```
+
+Requires the container and data (see Reproducing the Analysis above). The pipeline auto-detects Docker or Podman via `CONTAINER_RUNTIME`.
+
+| Step | Script | Output | Notebook |
+|------|--------|--------|----------|
+| 01 | `scripts/01_qc/run_qc.sh` | `output/quality_control/file7.*` | File S1 |
+| 02 | `scripts/02_selection_scans/run_selection_scans.sh` | `output/selection_scans/` | Files S2, S3 |
+| 03 | `scripts/05_ldna/run_ldna.sh` | `output/ldna/` | Files S4a–S4e |
+| 04 | `scripts/03_annotation/run_snpeff.sh` | `output/snpeff/` | File S6 |
+| 05 | `scripts/07_gene_expression/run_gene_expression.sh` | `output/gene_expression/` | File S5 |
+| 06 | `scripts/04_diversity/run_diversity.sh` | `output/diversity/`, `output/fst/` | Files S7, S8 |
+
+> **Note:** Step 03 (LDna) requires ~45 min and 32 GB RAM. See `scripts/README.md` for per-step details.
+
 ## Data Availability
 
 Input data (VCF files, SNP chip annotations, gene annotations) are archived at Zenodo [DOI: TBD — updated upon acceptance]. Reference genome AalbF3 is available at NCBI (GCA_006496715.1). See `data/README.md` for complete provenance and `docs/zenodo_manifest.md` for the full archive contents.

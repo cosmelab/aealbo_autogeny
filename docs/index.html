@@ -281,6 +281,76 @@
     </div>
 
   </div>
+
+  <div style="margin-top: 2.5rem;">
+    <p class="section-label">CLI Analysis Pipeline</p>
+    <p style="font-size:0.875rem; color:#5a6a7a; margin-bottom:1.25rem;">
+      Run the full analysis from the command line — no notebooks needed.
+      Each step maps to its supplementary notebook.
+      See <a href="https://github.com/cosmelab/aealbo_autogeny/blob/main/scripts/README.md"
+              style="color:#1a2744;">scripts/README.md</a> for details.
+    </p>
+    <div style="font-family:monospace; background:#1a2744; color:#c8ddf0;
+                border-radius:8px; padding:1rem 1.5rem; font-size:0.82rem; line-height:2;">
+      <span style="color:#7a9ab8;"># Dry run — see what's pending</span><br>
+      bash scripts/run_pipeline.sh --dry-run<br>
+      <br>
+      <span style="color:#7a9ab8;"># Run all steps (skips completed)</span><br>
+      bash scripts/run_pipeline.sh
+    </div>
+
+    <table style="width:100%; border-collapse:collapse; margin-top:1.25rem;
+                  font-size:0.875rem; background:#fff; border:1px solid #dce3ef;
+                  border-radius:8px; overflow:hidden;">
+      <thead>
+        <tr style="background:#1a2744; color:#fff;">
+          <th style="padding:0.6rem 1rem; text-align:left; font-weight:600;">Step</th>
+          <th style="padding:0.6rem 1rem; text-align:left; font-weight:600;">Script</th>
+          <th style="padding:0.6rem 1rem; text-align:left; font-weight:600;">Output</th>
+          <th style="padding:0.6rem 1rem; text-align:left; font-weight:600;">Notebook</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-top:1px solid #dce3ef;">
+          <td style="padding:0.55rem 1rem; color:#2a6496; font-weight:600;">01</td>
+          <td style="padding:0.55rem 1rem; font-family:monospace;">01_qc/run_qc.sh</td>
+          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/quality_control/file7.*</td>
+          <td style="padding:0.55rem 1rem;">File S1</td>
+        </tr>
+        <tr style="border-top:1px solid #dce3ef; background:#f9fbfd;">
+          <td style="padding:0.55rem 1rem; color:#1a7a4a; font-weight:600;">02</td>
+          <td style="padding:0.55rem 1rem; font-family:monospace;">02_selection_scans/run_selection_scans.sh</td>
+          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/selection_scans/</td>
+          <td style="padding:0.55rem 1rem;">Files S2, S3</td>
+        </tr>
+        <tr style="border-top:1px solid #dce3ef;">
+          <td style="padding:0.55rem 1rem; color:#c0392b; font-weight:600;">03</td>
+          <td style="padding:0.55rem 1rem; font-family:monospace;">05_ldna/run_ldna.sh</td>
+          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/ldna/ <span style="color:#c0392b;">~45 min, 32 GB</span></td>
+          <td style="padding:0.55rem 1rem;">Files S4a–S4e</td>
+        </tr>
+        <tr style="border-top:1px solid #dce3ef; background:#f9fbfd;">
+          <td style="padding:0.55rem 1rem; color:#117a65; font-weight:600;">04</td>
+          <td style="padding:0.55rem 1rem; font-family:monospace;">03_annotation/run_snpeff.sh</td>
+          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/snpeff/</td>
+          <td style="padding:0.55rem 1rem;">File S6</td>
+        </tr>
+        <tr style="border-top:1px solid #dce3ef;">
+          <td style="padding:0.55rem 1rem; color:#d68910; font-weight:600;">05</td>
+          <td style="padding:0.55rem 1rem; font-family:monospace;">07_gene_expression/run_gene_expression.sh</td>
+          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/gene_expression/</td>
+          <td style="padding:0.55rem 1rem;">File S5</td>
+        </tr>
+        <tr style="border-top:1px solid #dce3ef; background:#f9fbfd;">
+          <td style="padding:0.55rem 1rem; color:#6d4c41; font-weight:600;">06</td>
+          <td style="padding:0.55rem 1rem; font-family:monospace;">04_diversity/run_diversity.sh</td>
+          <td style="padding:0.55rem 1rem; color:#5a6a7a;">output/diversity/, output/fst/</td>
+          <td style="padding:0.55rem 1rem;">Files S7, S8</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
 </main>
 
 <footer>

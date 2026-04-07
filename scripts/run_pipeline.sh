@@ -16,11 +16,11 @@
 # ============================================================
 set -euo pipefail
 
-REPO_DIR="${1:-$HOME/projects/albopictus-autogeny}"
+REPO_DIR="${1:-$HOME/projects/aealbo_autogeny}"
 DRY_RUN=false
 for arg in "$@"; do [[ "$arg" == "--dry-run" ]] && DRY_RUN=true; done
 
-CONTAINER="ghcr.io/cosmelab/albopictus-autogeny:latest"
+CONTAINER="ghcr.io/cosmelab/aealbo_autogeny:latest"
 RUNTIME="${CONTAINER_RUNTIME:-docker}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
