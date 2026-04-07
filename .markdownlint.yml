@@ -1,0 +1,6 @@
+# markdownlint configuration for aealbo_autogeny
+# README has badges, long table rows, and citation URLs that exceed 80 chars
+MD013: false          # line-length — disabled (tables, URLs, badges)
+MD041: false          # first-line-heading — README starts with badge row
+MD034: false          # no-bare-urls — citation line has bare GitHub URL
+MD060: false          # table-column-style — compact tables are fine

@@ -1,6 +1,6 @@
 [![Container Build](https://github.com/cosmelab/aealbo_autogeny/actions/workflows/docker-build.yml/badge.svg)](https://github.com/cosmelab/aealbo_autogeny/actions/workflows/docker-build.yml) [![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://cosmelab.github.io/aealbo_autogeny/)
 
-<!-- ![Banner](docs/images/banner.png) -->
+![Banner](docs/images/banner.png)
 
 # Autogeny in *Aedes albopictus*: Supplementary Analysis Notebooks
 
