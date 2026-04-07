@@ -21,47 +21,77 @@ This repository contains the supplementary R Markdown notebooks for [Sturiale et
 
 ## Reproducing the Analysis
 
-### Requirements
+Choose the method that fits your setup. All three produce identical results.
 
-- Docker ≥ 20.x **or** Singularity ≥ 3.x (for HPC)
-- ~10 GB disk space (container + data)
-- `wget` (for data download)
+---
 
-### Step 1 — Clone the repo
+### Option A — pixi (local, no container)
+
+[pixi](https://pixi.sh) manages the full R + Python + genomics tool environment from `pixi.toml`. No Docker or Singularity needed.
 
 ```bash
+# 1. Clone
 git clone https://github.com/cosmelab/aealbo_autogeny && cd aealbo_autogeny
-```
 
-### Step 2 — Download data
+# 2. Install pixi (if not already installed)
+curl -fsSL https://pixi.sh/install.sh | bash
 
-```bash
+# 3. Install all dependencies (R, Python, plink2, etc.)
+pixi install
+pixi run install-r-extras   # installs OutFLANK, LDna, and other CRAN/GitHub packages
+
+# 4. Download data
 bash scripts/00_download_data.sh
+
+# 5. Render a notebook
+pixi run Rscript -e "rmarkdown::render('notebooks/File_S1.Quality_control.Rmd', output_dir='docs/html/')"
+
+# Render all notebooks in dependency order
+bash scripts/render_notebooks.sh
 ```
 
-This downloads VCF files and annotation inputs from Zenodo [DOI: TBD]. The reference genome (AalbF3, ~1.9 GB) is fetched separately from NCBI — see the script's printed instructions.
+---
 
-### Step 3 — Pull the container
+### Option B — Docker (local workstation)
 
 ```bash
-# Docker (local workstation)
+# 1. Clone and download data
+git clone https://github.com/cosmelab/aealbo_autogeny && cd aealbo_autogeny
+bash scripts/00_download_data.sh
+
+# 2. Pull container
 docker pull ghcr.io/cosmelab/aealbo_autogeny:latest
 
-# Singularity (HPC / Spark)
-singularity pull docker://ghcr.io/cosmelab/aealbo_autogeny:latest
-```
-
-### Step 4 — Render notebooks
-
-```bash
-# Render all notebooks in dependency order (auto-detects Docker vs Singularity)
-bash scripts/render_notebooks.sh
-
-# Render a single notebook
+# 3. Render a notebook
 docker run --rm -v $PWD:/workspace --workdir /workspace \
     ghcr.io/cosmelab/aealbo_autogeny:latest \
     bash -c 'eval "$(pixi shell-hook)" && Rscript -e \
     "rmarkdown::render(\"notebooks/File_S1.Quality_control.Rmd\", output_dir=\"docs/html/\")"'
+
+# Render all
+bash scripts/render_notebooks.sh   # auto-detects Docker
+```
+
+---
+
+### Option C — Singularity (HPC / Spark)
+
+```bash
+# 1. Clone and download data
+git clone https://github.com/cosmelab/aealbo_autogeny && cd aealbo_autogeny
+bash scripts/00_download_data.sh
+
+# 2. Pull container
+singularity pull docker://ghcr.io/cosmelab/aealbo_autogeny:latest
+
+# 3. Render a notebook
+singularity exec --bind $PWD:/workspace --pwd /workspace \
+    aealbo_autogeny_latest.sif \
+    bash -c 'eval "$(pixi shell-hook)" && Rscript -e \
+    "rmarkdown::render(\"notebooks/File_S1.Quality_control.Rmd\", output_dir=\"docs/html/\")"'
+
+# Render all
+bash scripts/render_notebooks.sh   # auto-detects Singularity
 ```
 
 See `docs/spark_instructions.md` for the full HPC workflow and `docs/spark_agent_task.json` for agent-driven rendering.
