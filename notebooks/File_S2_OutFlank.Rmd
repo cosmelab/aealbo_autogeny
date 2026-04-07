@@ -1,0 +1,680 @@
+---
+title: "Autogenous - Selection scan with OutFLANK"
+author: "Luciano V Cosme"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: breezedark
+    css:
+      - "styles.css"
+    toc: yes
+    toc_float: no
+    toc_depth: 5
+editor_options:
+  markdown:
+    wrap: 120
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval                        = TRUE,
+  echo                        = TRUE,
+  cache                       = FALSE,
+  class.output                = "bg-success"
+)
+knitr::opts_knit$set(
+  root.dir = here::here()
+)
+```
+
+
+# Overview
+
+This notebook implements the OutFLANK selection scan (Whitlock & Lotterhos 2015) to identify FST outlier loci in
+*Aedes albopictus* autogeny comparisons. The method fits a chi-squared distribution to a trimmed set of FST values
+to characterise the neutral FST distribution, then assigns q-values to identify outliers consistent with spatially
+heterogeneous selection.
+
+> **Population label key:** AUT = AUTO, MAN = NON-AUTO, NEW = NON-AUTO-FIELD.
+
+## 1. Libraries
+
+```{r libraries, message=FALSE, warning=FALSE, results='hide'}
+library(tidyverse)
+library(here)
+library(ggrepel)
+# library(ggtext)  # not available during render
+library(vcfR)
+library(OutFLANK)
+library(ggvenn)
+```
+
+
+## 2. Helper functions
+
+```{r helper-functions}
+source(here("notebooks", "helpers", "my_theme2.R"))
+
+# Load a VCF, recode diploid genotypes to 0/1/2/9, and return a named list
+# with the genotype matrix G (transposed for OutFLANK), SNP IDs, positions,
+# and population labels derived from sample name prefixes.
+vcf_to_genotype_matrix <- function(vcf_path) {
+  vcf       <- read.vcfR(vcf_path)
+  geno      <- vcfR::extract.gt(vcf)
+  snpNames  <- vcfR::getID(vcf)
+  positions <- vcfR::getPOS(vcf)
+  popNames  <- sapply(strsplit(colnames(geno), "_"), "[", 1)
+
+  G <- matrix(9L, nrow = nrow(geno), ncol = ncol(geno))
+  G[geno %in% c("0/0", "0|0")] <- 0L
+  G[geno %in% c("0/1", "1/0", "1|0", "0|1")] <- 1L
+  G[geno %in% c("1/1", "1|1")] <- 2L
+
+  list(G = t(G), snpNames = snpNames, positions = positions, popNames = popNames)
+}
+
+# Apply the calibrated neutral FST distribution to the full SNP set,
+# identify outliers, and return a data frame with OutlierFlag and q-values.
+run_outflank_scan <- function(vcf_path, out_trim) {
+  dat  <- vcf_to_genotype_matrix(vcf_path)
+  locusNames3 <- paste(dat$snpNames, dat$positions, sep = ".")
+  my_fst4 <- MakeDiploidFSTMat(dat$G, locusNames = locusNames3, popNames = dat$popNames)
+
+  P1 <- pOutlierFinderChiSqNoCorr(
+    my_fst4,
+    Fstbar    = out_trim$FSTNoCorrbar,
+    dfInferred = out_trim$dfInferred,
+    qthreshold = 0.05,
+    Hmin       = 0.1
+  )
+  P1 |> separate(LocusName, into = c("SNP_id", "LocusName"), sep = "\\.")
+}
+
+# Produce a Manhattan plot with outlier loci highlighted in magenta,
+# annotated with SNP IDs at the highest-FST outlier per chromosome.
+plot_outflank_manhattan <- function(P1, bim_path, title = NULL) {
+  snps <- read_delim(
+    bim_path,
+    col_names      = FALSE,
+    show_col_types = FALSE,
+    col_types      = "ccidcc"
+  )
+  colnames(snps) <- c("Scaffold", "SNP", "Cm", "Position", "Allele1", "Allele2")
+
+  my_fst4_split <- P1
+  merged_df <- merge(my_fst4_split, snps, by.x = "SNP_id", by.y = "SNP") |>
+    rename(Chromosome = Scaffold)
+
+  df_sub  <- subset(merged_df, He > 0.1)
+  my_out  <- P1$SNP_id[P1$OutlierFlag == TRUE]
+  df_sub$highlight <- df_sub$SNP_id %in% my_out
+
+  color_vector <- c("#CCF6D6", "#F6E1CC", "#CCD8F6")
+  names(color_vector) <- unique(df_sub$Chromosome)
+
+  highest_FST <- df_sub[df_sub$highlight, ]
+  highest_FST <- highest_FST[
+    highest_FST$FST == ave(highest_FST$FST, highest_FST$Chromosome, FUN = max), ]
+
+  k_format <- function(x) paste0(format(x / 1e6, big.mark = "", scientific = FALSE), "k")
+
+  ggplot(df_sub, aes(x = Position, y = FST)) +
+    geom_point(aes(color = Chromosome), data = subset(df_sub, !highlight), size = .3) +
+    geom_point(color = "magenta", data = subset(df_sub, highlight), size = .3) +
+    scale_color_manual(values = color_vector, guide = "none") +
+    labs(x = "Position", y = expression(F[ST]), title = title) +
+    facet_wrap(~ Chromosome, scales = "free_x") +
+    scale_x_continuous(labels = k_format) +
+    my_theme() +
+    theme(
+      panel.spacing  = unit(.2, "lines"),
+      plot.margin    = unit(c(1, 1, 2, 2), "lines"),
+      plot.caption   = element_text(face = "italic", color = "#574E4E")
+    ) +
+    geom_text_repel(
+      data = highest_FST,
+      aes(label = SNP_id),
+      size = 3, nudge_y = 0.01, segment.color = NA, max.overlaps = Inf
+    )
+}
+```
+
+
+## 3. OutFLANK: all three populations (MAN, NEW, AUT)
+
+OutFLANK identifies FST outlier loci by fitting a chi-squared distribution to a trimmed set of FST values from
+quasi-independent SNPs, then applying the inferred neutral FST distribution to the complete SNP set.
+
+### 3.1 LD pruning and neutral SNP calibration set
+
+Extract intergenic SNPs and perform LD pruning to obtain a quasi-independent set.
+
+```{bash outflank-3pop-ld-prune}
+plink2 \
+--bfile output/quality_control/file7 \
+--extract data/files/intergenic_SNPs.txt \
+--indep-pairwise 5 1 0.1 \
+--out output/outflank/indepSNP \
+--silent;
+grep 'samples\|variants\|remaining' output/outflank/indepSNP.log
+```
+
+```{bash outflank-3pop-intergenic-vcf}
+plink2 \
+--bfile output/quality_control/file7 \
+--extract output/outflank/indepSNP.prune.in \
+--export vcf \
+--make-bed \
+--maf 0.1 \
+--geno 0.2 \
+--out output/outflank/intergenic \
+--silent;
+grep 'samples\|variants\|remaining' output/outflank/intergenic.log
+```
+
+Compute FST values for the intergenic LD-pruned set and select low-FST loci (FST < 0.2) as the neutral calibration
+set.
+
+```{r outflank-3pop-neutral-snps}
+dat_intergenic <- vcf_to_genotype_matrix(here("output", "outflank", "intergenic.vcf"))
+my_fst_intergenic <- MakeDiploidFSTMat(
+  dat_intergenic$G,
+  locusNames = dat_intergenic$snpNames,
+  popNames   = dat_intergenic$popNames
+)
+
+neutral_snps <- my_fst_intergenic |>
+  filter(FST < 0.2 & FST >= -0.1) |>
+  pull(LocusName)
+
+write.table(
+  neutral_snps,
+  file      = here("output", "outflank", "neutral_SNPs.txt"),
+  row.names = FALSE,
+  quote     = FALSE,
+  col.names = FALSE,
+  sep       = "\n"
+)
+```
+
+```{bash outflank-3pop-neutral-vcf}
+plink2 \
+--bfile output/outflank/intergenic \
+--export vcf \
+--extract output/outflank/neutral_SNPs.txt \
+--out output/outflank/neutral \
+--silent;
+grep "samples\|variants" output/outflank/neutral.log
+```
+
+Calibrate the neutral FST distribution.
+
+```{r outflank-3pop-calibrate}
+dat_neutral <- vcf_to_genotype_matrix(here("output", "outflank", "neutral.vcf"))
+my_fst_neutral <- MakeDiploidFSTMat(
+  dat_neutral$G,
+  locusNames = dat_neutral$snpNames,
+  popNames   = dat_neutral$popNames
+)
+
+# NOTE: NumberOfSamples=60 is preserved from the original analysis.
+# FLAG: OutFLANK documentation specifies this should be the number of
+# populations (here: 3), not the number of individuals (60). This parameter
+# may affect the fitted chi-squared degrees of freedom and outlier calls.
+out_trim_3pop <- OutFLANK(
+  FstDataFrame    = my_fst_neutral,
+  Hmin            = 0.1,
+  NumberOfSamples = 60,
+  qthreshold      = 0.05
+)
+```
+
+Diagnostic plots for the neutral FST fit.
+
+```{r outflank-3pop-fit-diag}
+OutFLANKResultsPlotter(
+  out_trim_3pop,
+  withOutliers      = TRUE,
+  NoCorr            = TRUE,
+  Hmin              = 0.1,
+  binwidth          = 0.001,
+  Zoom              = FALSE,
+  RightZoomFraction = 0.05,
+  titletext         = NULL
+)
+```
+
+```{r outflank-3pop-fit-zoom}
+OutFLANKResultsPlotter(
+  out_trim_3pop,
+  withOutliers      = TRUE,
+  NoCorr            = TRUE,
+  Hmin              = 0.1,
+  binwidth          = 0.001,
+  Zoom              = TRUE,
+  RightZoomFraction = 0.05,
+  titletext         = NULL
+)
+```
+
+```{r outflank-3pop-pval-hist}
+hist(out_trim_3pop$results$pvaluesRightTail,
+     xlab = "P-value (right tail)", main = "3-population neutral calibration set")
+```
+
+
+### 3.2 Scan across all loci
+
+Apply the calibrated neutral FST distribution to the full LD-pruned SNP set.
+
+```{bash outflank-3pop-full-vcf}
+plink2 \
+--bfile output/quality_control/file7 \
+--export vcf \
+--extract output/quality_control/indepSNP.prune.in \
+--make-bed \
+--out output/outflank/autogenous \
+--silent;
+grep "samples\|variants" output/outflank/autogenous.log
+```
+
+```{r outflank-3pop-scan}
+P1_3pop <- run_outflank_scan(
+  here("output", "outflank", "autogenous.vcf"),
+  out_trim_3pop
+)
+
+my_out_3pop <- P1_3pop$SNP_id[P1_3pop$OutlierFlag == TRUE]
+write.table(
+  my_out_3pop,
+  file      = here("output", "outflank", "SNPs_outFlank.txt"),
+  row.names = FALSE,
+  quote     = FALSE,
+  col.names = FALSE,
+  sep       = "\n"
+)
+```
+
+```{r outflank-3pop-manhattan, fig.width=8, fig.height=5}
+p_3pop <- plot_outflank_manhattan(
+  P1_3pop,
+  here("output", "outflank", "autogenous.bim"),
+  title = "OutFLANK: AUTO vs NON-AUTO vs NON-AUTO-FIELD"
+)
+print(p_3pop)
+
+ggsave(
+  here("output", "outflank", "figures", "outFlank_outliers.pdf"),
+  width = 8, height = 5, units = "in"
+)
+```
+
+
+## 4. OutFLANK: NON-AUTO vs AUTO (MAN vs AUT)
+
+### 4.1 Neutral SNP calibration set
+
+```{bash outflank-man-aut-calib-vcf}
+plink2 \
+--bfile output/outflank/man_aut \
+--extract output/outflank/indepSNP.prune.in \
+--export vcf \
+--make-bed \
+--out output/outflank/man_aut2 \
+--silent;
+grep 'samples\|variants\|remaining' output/outflank/man_aut2.log
+```
+
+```{r outflank-man-aut-neutral-snps}
+dat_ma2 <- vcf_to_genotype_matrix(here("output", "outflank", "man_aut2.vcf"))
+my_fst_ma2 <- MakeDiploidFSTMat(
+  dat_ma2$G, locusNames = dat_ma2$snpNames, popNames = dat_ma2$popNames
+)
+neutral_ma <- my_fst_ma2 |> filter(FST < 0.2 & FST >= -0.1) |> pull(LocusName)
+write.table(
+  neutral_ma,
+  file      = here("output", "outflank", "man_aut2_SNPs.txt"),
+  row.names = FALSE, quote = FALSE, col.names = FALSE, sep = "\n"
+)
+```
+
+```{bash outflank-man-aut-neutral-vcf}
+plink2 \
+--bfile output/outflank/man_aut2 \
+--export vcf \
+--extract output/outflank/man_aut2_SNPs.txt \
+--out output/outflank/man_aut3 \
+--silent;
+grep "samples\|variants" output/outflank/man_aut3.log
+```
+
+```{r outflank-man-aut-calibrate}
+dat_ma3 <- vcf_to_genotype_matrix(here("output", "outflank", "man_aut3.vcf"))
+my_fst_ma3 <- MakeDiploidFSTMat(
+  dat_ma3$G, locusNames = dat_ma3$snpNames, popNames = dat_ma3$popNames
+)
+
+# NOTE: NumberOfSamples=60 preserved. FLAG: should be 2 (populations) for pairwise comparisons.
+out_trim_ma <- OutFLANK(
+  FstDataFrame    = my_fst_ma3,
+  Hmin            = 0.1,
+  NumberOfSamples = 60,
+  qthreshold      = 0.05
+)
+```
+
+```{r outflank-man-aut-fit-diag}
+OutFLANKResultsPlotter(
+  out_trim_ma,
+  withOutliers = TRUE, NoCorr = TRUE, Hmin = 0.1,
+  binwidth = 0.001, Zoom = FALSE, RightZoomFraction = 0.05, titletext = NULL
+)
+```
+
+```{r outflank-man-aut-fit-zoom}
+OutFLANKResultsPlotter(
+  out_trim_ma,
+  withOutliers = TRUE, NoCorr = TRUE, Hmin = 0.1,
+  binwidth = 0.001, Zoom = TRUE, RightZoomFraction = 0.05, titletext = NULL
+)
+```
+
+```{r outflank-man-aut-pval-hist}
+hist(out_trim_ma$results$pvaluesRightTail,
+     xlab = "P-value (right tail)", main = "NON-AUTO vs AUTO neutral calibration set")
+```
+
+
+### 4.2 Scan across all loci
+
+```{bash outflank-man-aut-full-vcf}
+plink2 \
+--bfile output/outflank/man_aut \
+--export vcf \
+--make-bed \
+--out output/outflank/man_aut4 \
+--silent;
+grep "samples\|variants" output/outflank/man_aut4.log
+```
+
+```{r outflank-man-aut-scan}
+P1_ma <- run_outflank_scan(
+  here("output", "outflank", "man_aut4.vcf"),
+  out_trim_ma
+)
+
+my_out_ma <- P1_ma$SNP_id[P1_ma$OutlierFlag == TRUE]
+write.table(
+  my_out_ma,
+  file      = here("output", "outflank", "man_aut_SNPs_outFlank.txt"),
+  row.names = FALSE, quote = FALSE, col.names = FALSE, sep = "\n"
+)
+```
+
+```{r outflank-man-aut-manhattan, fig.width=8, fig.height=5}
+p_ma <- plot_outflank_manhattan(
+  P1_ma,
+  here("output", "outflank", "man_aut.bim"),
+  title = "OutFLANK: NON-AUTO vs AUTO"
+)
+print(p_ma)
+
+ggsave(
+  here("output", "outflank", "figures", "man_aut_outFlank_outliers.pdf"),
+  width = 8, height = 5, units = "in"
+)
+```
+
+
+## 5. OutFLANK: NON-AUTO-FIELD vs AUTO (NEW vs AUT)
+
+### 5.1 Neutral SNP calibration set
+
+```{bash outflank-new-aut-calib-vcf}
+plink2 \
+--bfile output/outflank/new_aut \
+--extract output/outflank/indepSNP.prune.in \
+--export vcf \
+--make-bed \
+--out output/outflank/new_aut2 \
+--silent;
+grep 'samples\|variants\|remaining' output/outflank/new_aut2.log
+```
+
+```{r outflank-new-aut-neutral-snps}
+dat_na2 <- vcf_to_genotype_matrix(here("output", "outflank", "new_aut2.vcf"))
+my_fst_na2 <- MakeDiploidFSTMat(
+  dat_na2$G, locusNames = dat_na2$snpNames, popNames = dat_na2$popNames
+)
+neutral_na <- my_fst_na2 |> filter(FST < 0.2 & FST >= -0.1) |> pull(LocusName)
+write.table(
+  neutral_na,
+  file      = here("output", "outflank", "new_aut2_SNPs.txt"),
+  row.names = FALSE, quote = FALSE, col.names = FALSE, sep = "\n"
+)
+```
+
+```{bash outflank-new-aut-neutral-vcf}
+plink2 \
+--bfile output/outflank/new_aut2 \
+--export vcf \
+--extract output/outflank/new_aut2_SNPs.txt \
+--out output/outflank/new_aut3 \
+--silent;
+grep "samples\|variants" output/outflank/new_aut3.log
+```
+
+```{r outflank-new-aut-calibrate}
+dat_na3 <- vcf_to_genotype_matrix(here("output", "outflank", "new_aut3.vcf"))
+my_fst_na3 <- MakeDiploidFSTMat(
+  dat_na3$G, locusNames = dat_na3$snpNames, popNames = dat_na3$popNames
+)
+
+# NOTE: NumberOfSamples=60 preserved. FLAG: should be 2 (populations) for pairwise comparisons.
+out_trim_na <- OutFLANK(
+  FstDataFrame    = my_fst_na3,
+  Hmin            = 0.1,
+  NumberOfSamples = 60,
+  qthreshold      = 0.05
+)
+```
+
+```{r outflank-new-aut-fit-diag}
+OutFLANKResultsPlotter(
+  out_trim_na,
+  withOutliers = TRUE, NoCorr = TRUE, Hmin = 0.1,
+  binwidth = 0.001, Zoom = FALSE, RightZoomFraction = 0.05, titletext = NULL
+)
+```
+
+```{r outflank-new-aut-fit-zoom}
+OutFLANKResultsPlotter(
+  out_trim_na,
+  withOutliers = TRUE, NoCorr = TRUE, Hmin = 0.1,
+  binwidth = 0.001, Zoom = TRUE, RightZoomFraction = 0.05, titletext = NULL
+)
+```
+
+```{r outflank-new-aut-pval-hist}
+hist(out_trim_na$results$pvaluesRightTail,
+     xlab = "P-value (right tail)", main = "NON-AUTO-FIELD vs AUTO neutral calibration set")
+```
+
+
+### 5.2 Scan across all loci
+
+```{bash outflank-new-aut-full-vcf}
+plink2 \
+--bfile output/outflank/new_aut \
+--export vcf \
+--make-bed \
+--out output/outflank/new_aut4 \
+--silent;
+grep "samples\|variants" output/outflank/new_aut4.log
+```
+
+```{r outflank-new-aut-scan}
+P1_na <- run_outflank_scan(
+  here("output", "outflank", "new_aut4.vcf"),
+  out_trim_na
+)
+
+my_out_na <- P1_na$SNP_id[P1_na$OutlierFlag == TRUE]
+write.table(
+  my_out_na,
+  file      = here("output", "outflank", "new_aut_SNPs_outFlank.txt"),
+  row.names = FALSE, quote = FALSE, col.names = FALSE, sep = "\n"
+)
+```
+
+```{r outflank-new-aut-manhattan, fig.width=8, fig.height=5}
+p_na <- plot_outflank_manhattan(
+  P1_na,
+  here("output", "outflank", "new_aut.bim"),
+  title = "OutFLANK: NON-AUTO-FIELD vs AUTO"
+)
+print(p_na)
+
+ggsave(
+  here("output", "outflank", "figures", "new_aut_outFlank_outliers.pdf"),
+  width = 8, height = 5, units = "in"
+)
+```
+
+
+## 6. OutFLANK: NON-AUTO vs NON-AUTO-FIELD (MAN vs NEW)
+
+### 6.1 Neutral SNP calibration set
+
+```{bash outflank-man-new-calib-vcf}
+plink2 \
+--bfile output/outflank/man_new \
+--extract output/outflank/indepSNP.prune.in \
+--export vcf \
+--make-bed \
+--out output/outflank/man_new2 \
+--silent;
+grep 'samples\|variants\|remaining' output/outflank/man_new2.log
+```
+
+```{r outflank-man-new-neutral-snps}
+dat_mn2 <- vcf_to_genotype_matrix(here("output", "outflank", "man_new2.vcf"))
+my_fst_mn2 <- MakeDiploidFSTMat(
+  dat_mn2$G, locusNames = dat_mn2$snpNames, popNames = dat_mn2$popNames
+)
+neutral_mn <- my_fst_mn2 |> filter(FST < 0.2 & FST >= -0.1) |> pull(LocusName)
+write.table(
+  neutral_mn,
+  file      = here("output", "outflank", "man_new2_SNPs.txt"),
+  row.names = FALSE, quote = FALSE, col.names = FALSE, sep = "\n"
+)
+```
+
+```{bash outflank-man-new-neutral-vcf}
+plink2 \
+--bfile output/outflank/man_new2 \
+--export vcf \
+--extract output/outflank/man_new2_SNPs.txt \
+--out output/outflank/man_new3 \
+--silent;
+grep "samples\|variants" output/outflank/man_new3.log
+```
+
+```{r outflank-man-new-calibrate}
+dat_mn3 <- vcf_to_genotype_matrix(here("output", "outflank", "man_new3.vcf"))
+my_fst_mn3 <- MakeDiploidFSTMat(
+  dat_mn3$G, locusNames = dat_mn3$snpNames, popNames = dat_mn3$popNames
+)
+
+# NOTE: NumberOfSamples=60 preserved. FLAG: should be 2 (populations) for pairwise comparisons.
+out_trim_mn <- OutFLANK(
+  FstDataFrame    = my_fst_mn3,
+  Hmin            = 0.1,
+  NumberOfSamples = 60,
+  qthreshold      = 0.05
+)
+```
+
+```{r outflank-man-new-fit-diag}
+OutFLANKResultsPlotter(
+  out_trim_mn,
+  withOutliers = TRUE, NoCorr = TRUE, Hmin = 0.1,
+  binwidth = 0.001, Zoom = FALSE, RightZoomFraction = 0.05, titletext = NULL
+)
+```
+
+```{r outflank-man-new-fit-zoom}
+OutFLANKResultsPlotter(
+  out_trim_mn,
+  withOutliers = TRUE, NoCorr = TRUE, Hmin = 0.1,
+  binwidth = 0.001, Zoom = TRUE, RightZoomFraction = 0.05, titletext = NULL
+)
+```
+
+```{r outflank-man-new-pval-hist}
+hist(out_trim_mn$results$pvaluesRightTail,
+     xlab = "P-value (right tail)", main = "NON-AUTO vs NON-AUTO-FIELD neutral calibration set")
+```
+
+
+### 6.2 Scan across all loci
+
+No FST outliers are expected between the two non-autogenous populations.
+
+```{bash outflank-man-new-full-vcf}
+plink2 \
+--bfile output/outflank/man_new \
+--export vcf \
+--make-bed \
+--out output/outflank/man_new4 \
+--silent;
+grep "samples\|variants" output/outflank/man_new4.log
+```
+
+```{r outflank-man-new-scan}
+P1_mn <- run_outflank_scan(
+  here("output", "outflank", "man_new4.vcf"),
+  out_trim_mn
+)
+```
+
+
+## 7. Venn diagrams
+
+> **Note:** This section was not used in the final version of the manuscript.
+
+```{r outflank-venn, fig.height=5, fig.width=5}
+MAN_AUT <- read.table(
+  here("output", "outflank", "man_aut_SNPs_outFlank.txt"),
+  stringsAsFactors = FALSE
+) |> drop_na()
+
+NEW_AUT <- read.table(
+  here("output", "outflank", "new_aut_SNPs_outFlank.txt"),
+  stringsAsFactors = FALSE
+)
+
+NEW_MAN_AUT <- read.table(
+  here("output", "outflank", "SNPs_outFlank.txt"),
+  stringsAsFactors = FALSE
+)
+
+list_of_clusters <- list(
+  "NON-AUTO vs AUTO"       = MAN_AUT$V1,
+  "NON-AUTO-FIELD vs AUTO" = NEW_AUT$V1,
+  "All three populations"  = NEW_MAN_AUT$V1
+)
+
+venn_diagram <- ggvenn(list_of_clusters, fill_color = c("steelblue", "darkorange", "pink"))
+print(venn_diagram)
+
+common_SNPs <- Reduce(intersect, list_of_clusters)
+write.table(
+  common_SNPs,
+  file      = here("output", "pcadapt", "common_SNPs_NEW_MAN_AUT.txt"),
+  row.names = FALSE, col.names = FALSE, quote = FALSE
+)
+
+output_path <- here("output", "pcadapt", "figures", "significant_snps_NEW_MAN_AUT.pdf")
+ggsave(output_path, venn_diagram, height = 5, width = 5, dpi = 300)
+```

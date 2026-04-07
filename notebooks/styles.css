@@ -1,0 +1,271 @@
+/*
+Theme Name: ReClean
+Theme URI: http://www.codenx.com/
+Theme Version: 1.0
+Theme Date: 2013-03-12
+Theme Author: CodeNx
+Theme Author URI: http://www.codenx.com/
+Theme License: GPLv2
+*/
+
+/* Import Google Web Fonts */
+@import url("https://fonts.googleapis.com/css?family=Maven+Pro:400");
+@import url("https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800");
+
+/* HTML5 display-role reset for older browsers */
+article,
+aside,
+details,
+figcaption,
+footer,
+header,
+hgroup,
+menu,
+nav,
+section {
+  display: block;
+}
+
+body {
+  line-height: 1;
+  background: none repeat scroll 0% 0% rgb(255, 255, 255);
+  font: 400 100%/1.625 "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 18px;
+  color: #474344;
+}
+
+h1 {
+  font-weight: 400;
+  line-height: 1.1em;
+  border-bottom: 1px dashed #0077BB;
+  position: relative;
+  padding: 14px 25px 5px 0;
+  font-size: 2em;
+  text-transform: uppercase;
+  line-height: 1.2em;
+  margin: 0.2em 0px 20px -2px;
+  color: #000000; /* Black */
+  text-decoration: none;
+  text-indent: 5px; /* Add indentation */
+}
+
+h2 {
+  font-size: 1.8em;
+  color: #f554d2 !important; /* Hot Pink */
+  padding: 5px 20px !important;
+  clear: both;
+  background: #eee;
+  font-weight: 700;
+  text-indent: 10px; /* Add indentation */
+}
+
+h3 {
+  font-size: 1.5em;
+  color: #f57ad4 !important; /* Light Pink */
+  margin: 0 0 10px 0;
+  text-indent: 25px; /* Add indentation */
+}
+
+h4 {
+  font-size: 1.5em;
+  color: #f57ad4 !important; /* Light Pink */
+  margin: 0 0 10px 0;
+  text-indent: 35px; /* Add indentation */
+}
+
+blockquote {
+  background: #eee;
+  padding: 15px;
+  margin: 30px auto;
+  border: 1px solid #aaa;
+  font-size: 16px;
+  font-style: italic;
+  color: #000;
+  position: relative;
+}
+
+blockquote p {
+  margin: 0;
+  padding: 0;
+}
+
+ul.left {}
+
+ul.right {
+  text-align: right;
+}
+
+a:link,
+a:visited {
+  text-decoration: none;
+  color: #0077BB;
+}
+
+a:hover,
+a:active {
+  color: #0099cc;
+  text-decoration: underline;
+}
+
+.header {
+  background-color: #fff;
+  height: 10%;
+}
+
+.header-wrapper {
+  width: 998px;
+  margin: 0 auto;
+  background-color: #fff;
+}
+
+.logo {
+  width: 200px;
+  margin-top: 10px;
+}
+
+.search {
+  margin-top: 10px;
+}
+
+.nav {
+  height: 10%;
+  background-color: #00AEEC;
+}
+
+.nav-wrapper {
+  margin: 0 auto;
+  width: 998px;
+}
+
+.nav ul,
+.header ul,
+.sidebar ul {
+  list-style: none;
+  list-style-type: none;
+}
+
+.nav ul li,
+.header ul li {
+  display: inline;
+  padding: 0px 10px 0px 10px;
+}
+
+.nav ul li {
+  padding: 0 20px;
+}
+
+/* Python code colors */
+.code.keyword.python {
+  color: #0000FF; /* blue */
+}
+
+.code.function.python {
+  color: #FF1493; /* pink */
+}
+
+.code.variable.python {
+  color: #e5c07b; /* yellow */
+}
+
+.code.string.python {
+  color: #98c379; /* green */
+}
+
+.code.comment.python {
+  color: #5c6370; /* gray */
+}
+
+.code.operator.python {
+  color: #56b6c2; /* cyan */
+}
+
+/* R code colors */
+.code.keyword.r {
+  color: #0000FF; /* blue */
+}
+
+.code.function.r {
+  color: #ff80ee; /* pink */
+}
+
+.code.variable.r {
+  color: #e5c07b; /* yellow */
+}
+
+.code.string.r {
+  color: #98c379; /* green */
+}
+
+.code.comment.r {
+  color: #5c6370; /* gray */
+}
+
+.code.operator.r {
+  color: #56b6c2; /* cyan */
+}
+
+/* Bash code colors */
+.code.keyword.bash {
+  color: #0000FF; /* blue */
+}
+
+.code.command.bash {
+  color: #FF1493; /* pink */
+}
+
+.code.variable.bash {
+  color: #e5c07b; /* yellow */
+}
+
+.code.string.bash {
+  color: #98c379; /* green */
+}
+
+.code.comment.bash {
+  color: #5c6370; /* gray */
+}
+
+.code.operator.bash {
+  color: #56b6c2; /* cyan */
+}
+
+.code.bracket.bash {
+  color: #56b6c2; /* cyan */
+}
+
+.code.dollar.bash {
+  color: #e5c07b; /* yellow */
+}
+
+.code.double-dash.bash {
+  color: #be5046; /* red */
+}
+
+/* Code Chunks */
+pre,
+code {
+  background-color: #282C34;
+  color: #abb2bf;
+  padding: 10px;
+  border-radius: 4px;
+}
+
+.bg-success {
+  background-color: #1a1a1a; /* sets color for chunk output background color */
+  color: #f2a2cb; /* sets color for chunk output text color */
+}
+
+.codeBlockCustom {
+	background-color: #1a1a1a; /* Dark background color */
+    color: #f2a2cb; /* Pinkish color for the text */
+}
+
+<style>
+table {
+  caption-side: bottom;
+}
+
+table caption {
+  color: #000000;
+}
+</style>

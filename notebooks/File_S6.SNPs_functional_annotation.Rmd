@@ -1,0 +1,225 @@
+---
+title: "Autogenous - Functional annotation of SNPs using SnpEff"
+author: "Luciano V Cosme"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: breezedark
+    css:
+      - "styles.css"
+    toc: yes
+    toc_float: no
+    toc_depth: 5
+editor_options:
+  markdown:
+    wrap: 120
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval         = TRUE,
+  echo         = TRUE,
+  cache        = FALSE,
+  class.output = "bg-success"
+)
+knitr::opts_knit$set(
+  root.dir = here::here()
+)
+```
+
+> **Population label key:** The code labels used in the analysis below correspond to the following manuscript labels: AUT = AUTO, MAN = NON-AUTO, NEW = NON-AUTO-FIELD.
+
+## 1. Load libraries
+
+```{r load-libraries, message=FALSE, warning=FALSE, results='hide'}
+library(tidyverse)
+library(here)
+```
+
+## 2. Variant annotation with SnpEff
+
+Functional annotation was performed with SnpEff using a custom AalbF3 database built from the AalbF3 GFF annotation file (`data/files/genes.gff`). The publicly available SnpEff database for *Aedes albopictus* targets AalbF1 and is not compatible with the genome assembly used here.
+
+```{bash snpeff-check-annotation}
+head -n 2 data/files/genes.gff
+```
+
+## 2. Build snpEff database and annotate
+
+A custom snpEff database was built from the AalbF3 GTF annotation and reference genome. The GTF uses scaffold names matching the FASTA (e.g., `1.1`, `3.9`).
+
+```{bash snpeff-build-and-annotate}
+DBDIR=output/snpeff/database
+mkdir -p $DBDIR/data/albo_v3
+
+# GTF annotation (scaffold names match FASTA)
+zcat data/genome/AalbF3_annotation.gtf.gz > $DBDIR/data/albo_v3/genes.gtf
+zcat data/genome/albo.fasta.gz > $DBDIR/data/albo_v3/sequences.fa
+cp data/genome/AalbF3_protein.fasta $DBDIR/data/albo_v3/protein.fa
+
+# Use container's default config + add custom genome
+SNPEFF_CONFIG=/workspace/.pixi/envs/default/share/snpeff-5.4.0c-0/snpEff.config
+cp $SNPEFF_CONFIG $DBDIR/snpEff.config
+echo "albo_v3.genome : Aedes_albopictus_AalbF3" >> $DBDIR/snpEff.config
+sed -i "s|^data.dir.*|data.dir = $DBDIR/data/|" $DBDIR/snpEff.config
+
+# Build database
+cd $DBDIR && snpEff build -gtf22 -v -noCheckProtein -noCheckCds albo_v3 -config $DBDIR/snpEff.config
+
+# Annotate all SNPs
+cd $DBDIR && snpEff ann albo_v3 -config $DBDIR/snpEff.config /project/output/snpeff/albo.vcf > /project/output/snpeff/albo_ann.vcf
+mv $DBDIR/snpEff_* /project/output/snpeff/ 2>/dev/null || true
+
+echo "Annotated VCF lines: $(grep -v '^#' /project/output/snpeff/albo_ann.vcf | wc -l)"
+```
+
+## 3. Identify genes near selection-scan SNPs
+
+Four SNPs from the selection scans fall within the coding regions of differentially expressed genes. This section locates all genes within proximity of the full set of selection-scan SNPs.
+
+### 3.1 Extract annotated SNP records
+
+```{bash snpeff-grep-snps}
+grep -f output/snpeff/SNPs_158.txt output/snpeff/albo_ann.vcf > output/snpeff/genes_158_SNPs.txt;
+echo "Lines: $(wc -l < output/snpeff/genes_158_SNPs.txt)"
+```
+
+Reformat the annotated VCF into a tab-delimited table.
+
+```{bash snpeff-parse-annotations}
+sed -e 's/|/\t/g' -e 's/,/\t/g' -e 's/;/\t/g' -e 's/\t\+/\t/g' output/snpeff/genes_158_SNPs.txt | awk -F"\t" '{
+    for(i = 1; i <= NF; ++i) {
+        if ($i == "GT") {
+            break
+        } else {
+            if ($i !~ /\//) {
+                printf "%s\t", $i
+            }
+        }
+    }
+    printf "\n"
+}' | awk -F '\t' '{print $1, $2, $3, $10, $11, $12, $13, $17, $18, $19, $20}' > output/snpeff/snps_autogenous.txt;
+echo "Lines: $(wc -l < output/snpeff/snps_autogenous.txt)"
+```
+
+```{r snpeff-load-annotations}
+snps_autogenous <- read_delim(here("output", "snpeff", "snps_autogenous.txt"), delim = " ", col_names = FALSE, show_col_types = FALSE)
+head(snps_autogenous)
+```
+
+Retain only non-coding and splice-site variants.
+
+<!-- NOTE (issue #14): The missense_variant filter has been flagged as NEEDS_VERIFICATION. -->
+
+```{r snpeff-filter-variants}
+snps_autogenous <- snps_autogenous |>
+  filter(!X4 %in% c("synonymous_variant", "intron_variant", "missense_variant", "splice_region_variant&intron_variant"))
+head(snps_autogenous)
+```
+
+Some transcripts lack a LOC identifier in the SnpEff output; these can be resolved by querying the GFF file directly.
+
+```{bash snpeff-resolve-transcript-id}
+grep "exon-XM_029870196.1-1" data/files/genes.gff
+```
+
+### 3.2 Proximity analysis with bedtools
+
+Gene coordinates are extracted from the GFF file and a 10 kb window search is used to identify genes proximal to each selection-scan SNP.
+
+```{bash bedtools-make-gene-bed}
+awk 'BEGIN {OFS="\t"} $3=="gene" {print $1, $4-1, $5, $9}' data/files/genes.gff > output/snpeff/genes.bed
+```
+
+```{bash bedtools-sort-snps}
+awk 'BEGIN {OFS="\t"} {print $2, $3, $4, $1}' output/snpeff/snps_functional.bed > output/snpeff/snps_functional_rearranged.bed;
+sort -k1,1 -k2,2n output/snpeff/snps_functional_rearranged.bed > output/snpeff/snps_functional_sorted.bed;
+head output/snpeff/snps_functional_sorted.bed
+```
+
+```{bash bedtools-sort-genes}
+sort -k1,1 -k2,2n output/snpeff/genes.bed > output/snpeff/genes_sorted.bed;
+awk 'BEGIN {OFS="\t"} {gsub(/^chr/, "", $1); print $0}' output/snpeff/genes_sorted.bed > output/snpeff/genes_sorted_no_chr.bed;
+head output/snpeff/genes_sorted_no_chr.bed
+```
+
+```{bash bedtools-closest-genes}
+bedtools closest -a output/snpeff/snps_functional_sorted.bed -b output/snpeff/genes_sorted_no_chr.bed -D "ref" > output/snpeff/closest_genes.bed;
+head output/snpeff/closest_genes.bed
+```
+
+Each SNP region is extended by 10 kb on both sides and intersected with the gene annotation to retrieve proximal genes.
+
+```{bash bedtools-slop-10kb}
+bedtools slop -i output/snpeff/snps_functional_sorted.bed -g data/genome/scaffold_sizes.txt -b 10000 > output/snpeff/snps_10k.bed;
+head output/snpeff/snps_10k.bed
+```
+
+```{bash bedtools-closest-10kb}
+bedtools closest -a output/snpeff/snps_10k.bed -b output/snpeff/genes_sorted_no_chr.bed -D "ref" -d > output/snpeff/closest_genes_within_10kb.bed;
+head output/snpeff/closest_genes_within_10kb.bed
+```
+
+```{bash bedtools-extract-snp-gene-pairs}
+awk 'match($4, /AX-[0-9]+/) {snp=substr($4, RSTART, RLENGTH)} match($8, /LOC[0-9]+/) {gene=substr($8, RSTART, RLENGTH)} {if(snp && gene) print snp, gene; snp=""; gene=""}' output/snpeff/closest_genes_within_10kb.bed > output/snpeff/genes_10kb_snps.txt;
+head output/snpeff/genes_10kb_snps.txt
+```
+
+### 3.3 Intersect with differentially expressed genes
+
+```{r load-proximal-genes}
+closest_genes <- read_delim(
+  here("output", "snpeff", "genes_10kb_snps.txt"),
+  delim     = " ",
+  col_names = c("SNP", "Gene_ID"),
+  show_col_types = FALSE
+)
+head(closest_genes)
+```
+
+```{r load-gene-expression}
+gene_expression <- read_delim(
+  here("data", "files", "MANvsAUTO_sig_mRNAs.csv"),
+  delim      = ",",
+  col_names  = TRUE,
+  show_col_types = FALSE
+) |>
+  dplyr::select(gene, log2FoldChange) |>
+  dplyr::rename(Gene_ID = gene)
+head(gene_expression)
+```
+
+```{r merge-snps-expression}
+gene_snps_exp <- inner_join(gene_expression, closest_genes, by = "Gene_ID")
+head(gene_snps_exp)
+```
+
+```{r list-candidate-snps}
+unique(gene_snps_exp$SNP)
+```
+
+This confirms the four SNPs identified by direct SnpEff annotation.
+
+### 3.4 Annotate candidate SNPs
+
+```{bash snpeff-annotate-snp-1}
+grep "AX-581302901" output/snpeff/albo_ann.vcf | cut -f1-8
+```
+
+```{bash snpeff-annotate-snp-2}
+grep "AX-581504582" output/snpeff/albo_ann.vcf | cut -f1-8
+```
+
+```{bash snpeff-annotate-snp-3}
+grep "AX-583054970" output/snpeff/albo_ann.vcf | cut -f1-8
+```
+
+```{bash snpeff-annotate-snp-4}
+grep "AX-583972796" output/snpeff/albo_ann.vcf | cut -f1-8
+```
+
+### 3.5 Annotate cluster 14 SNPs on chromosome 2
+
+```{bash snpeff-annotate-cluster14}
+grep -E "AX-579474142|AX-579474650|AX-579509845|AX-579556477|AX-579560686|AX-579564292|AX-579565469|AX-579580051|AX-579584369|AX-579583040|AX-579584883|AX-579596233|AX-579602153|AX-579603553|AX-579604213|AX-579607140|AX-579618571|AX-579619995|AX-579620627" output/snpeff/albo_ann.vcf | cut -f1-8
+```

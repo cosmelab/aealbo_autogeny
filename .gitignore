@@ -1,0 +1,36 @@
+# Large data files (download from Zenodo)
+data/genotype_calls/
+data/genome/
+data/files/
+
+# Generated output (reproducible from notebooks)
+output/
+results/
+logs/
+
+# Rendered HTML (EXCEPT committed notebooks in docs/html/)
+*.html
+!docs/html/*.html
+!docs/index.html
+
+# knitr cache and figure dirs
+*_cache/
+*_files/
+
+# R environment
+.Rhistory
+.RData
+.Rproj.user/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Container images
+*.sif
+
+# Debug scripts
+scripts/debug/
+
+# PDF outputs
+*.pdf

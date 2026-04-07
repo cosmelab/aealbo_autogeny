@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Autogeny in Aedes albopictus — Sturiale et al.</title>
+  <style>
+    /* Reset */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+      background: #f4f6fb;
+      color: #2c3e50;
+      line-height: 1.6;
+    }
+
+    /* Header */
+    header {
+      background: #1a2744;
+      color: #fff;
+      padding: 3rem 2rem 2.5rem;
+      text-align: center;
+    }
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.5rem;
+    }
+    header h1 em {
+      font-style: italic;
+    }
+    header .subtitle {
+      font-size: 1.05rem;
+      color: #a8bbd6;
+      margin-bottom: 1.5rem;
+    }
+    .repo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: #fff;
+      text-decoration: none;
+      padding: 0.45rem 1rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      transition: background 0.2s;
+    }
+    .repo-badge:hover {
+      background: rgba(255,255,255,0.22);
+    }
+    .repo-badge svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    /* Main content */
+    main {
+      max-width: 960px;
+      margin: 2.5rem auto;
+      padding: 0 1.25rem;
+    }
+
+    /* Section heading */
+    .section-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #7f8c9a;
+      margin-bottom: 1.25rem;
+    }
+
+    /* Grid */
+    .notebook-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.25rem;
+    }
+    @media (max-width: 640px) {
+      .notebook-grid { grid-template-columns: 1fr; }
+    }
+
+    /* Cards */
+    .card {
+      background: #fff;
+      border: 1px solid #dce3ef;
+      border-radius: 10px;
+      padding: 1.4rem 1.5rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      transition: box-shadow 0.2s, border-color 0.2s;
+    }
+    .card:hover {
+      box-shadow: 0 4px 18px rgba(26,39,68,0.10);
+      border-color: #b0bfd8;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+    .badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      font-size: 0.8rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      color: #fff;
+    }
+    /* Distinct colors per badge */
+    .badge-s1 { background: #2a6496; }
+    .badge-s2 { background: #1a7a4a; }
+    .badge-s3 { background: #7b4fa6; }
+    .badge-s4 { background: #c0392b; }
+    .badge-s5 { background: #d68910; }
+    .badge-s6 { background: #117a65; }
+    .badge-s7 { background: #1f618d; }
+    .badge-s8 { background: #6d4c41; }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #1a2744;
+    }
+    .card-desc {
+      font-size: 0.875rem;
+      color: #5a6a7a;
+      flex: 1;
+    }
+    .card-link {
+      display: inline-block;
+      margin-top: 0.4rem;
+      padding: 0.38rem 0.85rem;
+      background: #1a2744;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 5px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      align-self: flex-start;
+      transition: background 0.2s;
+    }
+    .card-link:hover { background: #253a6a; }
+
+    /* Footer */
+    footer {
+      background: #1a2744;
+      color: #a8bbd6;
+      padding: 2rem;
+      margin-top: 3rem;
+      font-size: 0.85rem;
+      text-align: center;
+      line-height: 1.8;
+    }
+    footer strong { color: #d6e4f0; }
+    footer code {
+      background: rgba(255,255,255,0.1);
+      padding: 0.15em 0.5em;
+      border-radius: 4px;
+      font-size: 0.82rem;
+      color: #c8ddf0;
+    }
+    footer .footer-note {
+      margin-top: 0.75rem;
+      font-style: italic;
+      color: #7a9ab8;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Autogeny in <em>Aedes albopictus</em></h1>
+  <p class="subtitle">Supplementary Analysis Notebooks &mdash; Sturiale et al., BMC Biology</p>
+  <a class="repo-badge"
+     href="https://github.com/cosmelab/aealbopictus_autogeny"
+     target="_blank" rel="noopener">
+    <!-- GitHub mark SVG -->
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+               0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+               -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+               .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95
+               0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12
+               0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27
+               1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
+               .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95
+               .29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2
+               0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+    </svg>
+    cosmelab/aealbopictus_autogeny
+  </a>
+</header>
+
+<main>
+  <p class="section-label">Supplementary Notebooks</p>
+  <div class="notebook-grid">
+
+    <div class="card">
+      <div class="card-header">
+        <span class="badge badge-s1">S1</span>
+        <span class="card-title">Quality Control</span>
+      </div>
+      <p class="card-desc">Filtering 131,048 SNPs to 110,353 high-quality markers using PLINK: missingness, HWE, MAF, and LD pruning.</p>
+      <a class="card-link" href="html/File_S1.Quality_control.html">View Notebook &rarr;</a>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="badge badge-s2">S2</span>
+        <span class="card-title">Selection Scan: OutFLANK</span>
+      </div>
+      <p class="card-desc">Genome-wide FST-based outlier detection identifying loci under divergent selection.</p>
+      <a class="card-link" href="html/File_S2_OutFlank.html">View Notebook &rarr;</a>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="badge badge-s3">S3</span>
+        <span class="card-title">Selection Scan: pcadapt</span>
+      </div>
+      <p class="card-desc">Latent factor mixed model approach to detecting selection using population structure.</p>
+      <a class="card-link" href="html/File_S3.pcadapt.html">View Notebook &rarr;</a>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="badge badge-s4">S4</span>
+        <span class="card-title">Linkage Network Analysis</span>
+      </div>
+      <p class="card-desc">LDna (v2.15) identifies Single-Outlier Clusters of SNPs in high LD on chromosomes 1, 2, and 3.</p>
+      <a class="card-link" href="html/File_S4.Linkage_network_analysis.html">View Notebook &rarr;</a>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="badge badge-s5">S5</span>
+        <span class="card-title">Gene Expression Intersection</span>
+      </div>
+      <p class="card-desc">Overlap between 158 selection scan outliers and 793 differentially expressed genes from RNAseq.</p>
+      <a class="card-link" href="html/File_S5.Intersection_gene_expression_SNPs.html">View Notebook &rarr;</a>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="badge badge-s6">S6</span>
+        <span class="card-title">Functional Annotation</span>
+      </div>
+      <p class="card-desc">Predicted functional effects of outlier SNPs using a custom SnpEff database (AalbF3 genome).</p>
+      <a class="card-link" href="html/File_S6.SNPs_functional_annotation.html">View Notebook &rarr;</a>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="badge badge-s7">S7</span>
+        <span class="card-title">Allele Frequencies</span>
+      </div>
+      <p class="card-desc">Allele and genotype frequency distributions across AUTO, NON-AUTO, and NON-AUTO-FIELD populations.</p>
+      <a class="card-link" href="html/File_S7.Frequencies.html">View Notebook &rarr;</a>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="badge badge-s8">S8</span>
+        <span class="card-title">FST Estimations</span>
+      </div>
+      <p class="card-desc">Pairwise FST between populations and sliding-window FST across all three chromosomes.</p>
+      <a class="card-link" href="html/File_S8.Fst.html">View Notebook &rarr;</a>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  <p>
+    <strong>Citation:</strong> Sturiale et al. <em>BMC Biology</em> [in revision]
+  </p>
+  <p>
+    <strong>Container:</strong> <code>ghcr.io/cosmelab/aealbopictus_autogeny:latest</code>
+    &nbsp;&nbsp;|&nbsp;&nbsp;
+    <strong>Data:</strong> Zenodo [DOI: TBD]
+  </p>
+  <p class="footer-note">
+    HTML notebooks rendered using the container environment.
+    Links activate after notebooks are rendered on HPC and committed.
+  </p>
+</footer>
+
+</body>
+</html>

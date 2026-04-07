@@ -1,0 +1,403 @@
+---
+title: "Parsing the results of gene expression and selection scans."
+author: "Luciano V Cosme"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: breezedark
+    css:
+      - "styles.css"
+    toc: yes
+    toc_float: no
+    toc_depth: 5
+editor_options:
+  markdown:
+    wrap: 120
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval                        = TRUE,
+  echo                        = TRUE,
+  cache                       = FALSE,
+  class.output                = "bg-success"
+)
+knitr::opts_knit$set(
+  root.dir = here::here()
+)
+```
+
+
+
+> **Population label key:** The code labels used in the analysis below correspond to the following manuscript labels: AUT = AUTO, MAN = NON-AUTO, NEW = NON-AUTO-FIELD.
+
+> **Note:** The analyses in this file were not used directly in the final version of the manuscript. However, this notebook generates intermediate data files (snps_genes_chr.rds, SNPs_on_DE_genes.txt, SNPs_79_DE.txt) that are consumed by the Linkage Network Analysis (File S7) and Fst (File S8) notebooks.
+
+## 1. R libraries
+
+```{r libraries, message=FALSE, results='hide'}
+library(tidyverse)
+library(here)
+library(openxlsx)
+```
+
+## 2. Get gene information from gff file
+
+Since we created a chromosomal scale and the gff file has the scaffolds positions, we can get the genomic coordinates of the genes and then lift them to the chromosomal scale. Another way would be get the SNPs IDs and check where they are located. Each way has its up and down sides.
+
+The gff file with the annotation for the AalbF3 genome assembly is available in the project, under the files directory.
+
+```{bash}
+head data/files/genes.gff
+```
+
+To start we can get the scaffold, start and end of each gene. I will do this because I might need to represent the genes in a plot using ggplot.
+
+```{bash}
+# In the code below we get the gene id, the scaffold id, the gene start, the gene end, and the size of the genomic regions the gene covers (end - start)
+awk 'BEGIN {OFS="\t"} $3=="gene" {split($9, a, ";"); split(a[1], b, "="); size = $5 - $4; print b[2], $1, $4, $5, size}' data/files/genes.gff | head
+```
+
+
+Create a file with the genomic coordinates for each gene
+```{bash}
+# In the code below we get the gene id, the scaffold id, the gene start, the gene end, and the size of the genomic regions the gene covers (end - start)
+awk 'BEGIN {OFS="\t"} $3=="gene" {split($9, a, ";"); split(a[1], b, "="); size = $5 - $4; print b[2], $1, $4, $5, size}' data/files/genes.gff > data/files/genes.txt;
+wc -l data/files/genes.txt
+```
+
+We got 20,621 genes in the gff file.
+
+We can import the data into R now
+```{r import-gene-data}
+gene_data <- read_delim(here("data", "files","genes.txt"), delim = "\t", col_names = c("Gene_ID", "Scaffold", "Start", "End", "Size"), show_col_types = FALSE)
+head(gene_data)
+```
+
+First we need to remove the string "chr" from the collumn Scaffold.
+
+```{r clean-scaffold-string}
+gene_data <- gene_data %>%
+  mutate(Scaffold = str_remove(Scaffold, "chr"))
+head(gene_data)
+```
+
+Now we can import the bim file in which we have the Scaffold
+
+```{r import-bim-scaffolds}
+# Import the function
+source(here("notebooks", "helpers", "import_bim.R"))
+
+# Import the data
+scaffolds <- import_bim(here("output", "quality_control", "file1.bim"))
+head(scaffolds)
+```
+
+Now import the file with chromosomal scale
+```{r import-bim-chromosomes}
+chromosomes <- import_bim(here("output", "quality_control", "file7.bim"))
+
+# Rename columns
+chromosomes <- chromosomes |>
+  dplyr::rename(Chromosome = Scaffold,
+                Position_chr = Position)
+
+head(chromosomes)
+```
+
+Now merge the object
+```{r merge-snps-scaffolds-chromosomes}
+# Merge and keep only the rows with data
+snps_albo <- inner_join(scaffolds, chromosomes, by = "SNP", suffix = c("", "")) |>
+  dplyr::select(
+    SNP, Chromosome, Position_chr, Scaffold, Position
+  )
+head(snps_albo)
+```
+
+Now we can add our gene data with the scaffold data
+
+```{r join-snps-gene-coords, warning=FALSE}
+# Perform a non-equi join
+merged_scaff <- scaffolds |>
+  left_join(gene_data, by = "Scaffold") |>
+  filter(Position >= Start & Position <= End)
+head(merged_scaff)
+```
+
+
+Now we merge with chromosomal data
+
+```{r merge-snps-genes-chromosomal}
+# Merge
+snps_genes_chr <- inner_join(merged_scaff, chromosomes, by = "SNP", suffix = c("", "")) |>
+  dplyr::select(
+    SNP, Chromosome, Position_chr, Scaffold, Position, Gene_ID, Start, End, End
+  ) |>
+  mutate(Gene_ID = str_remove(Gene_ID, "gene-"))
+head(snps_genes_chr)
+```
+
+Save it
+```{r save-snps-genes-chr}
+saveRDS(snps_genes_chr, file = here("output", "ldna", "snps_genes_chr.rds"))
+```
+
+```{r reload-snps-genes-chr, eval=FALSE}
+snps_genes_chr <- readRDS(file = here("output", "ldna", "snps_genes_chr.rds"))
+```
+
+
+## 3. Expression data
+Now we can import gene expression data
+
+```{r import-gene-expression}
+gene_expression <- read_delim(here("data", "files","MANvsAUTO_sig_mRNAs.csv"), delim = ",", col_names = TRUE, show_col_types = FALSE) |>
+  dplyr::select(
+    gene,log2FoldChange
+  ) |>
+  dplyr::rename(
+    Gene_ID = gene
+  )
+head(gene_expression)
+```
+
+Now we can merge it with our snps_genes_chr object
+
+```{r merge-snps-expression}
+snps_expression <- inner_join(snps_genes_chr, gene_expression, by = "Gene_ID", suffix = c("", ""))
+head(snps_expression)
+
+# save the data
+saveRDS(snps_expression,
+        here(
+          "output", "ldna", "snps_expression.rds"
+        ))
+```
+
+Check how many SNPs we have in the genes with differential expression
+```{r count-snps-in-de-genes}
+length(snps_expression$SNP)
+```
+
+Save the list of SNPs on DE genes
+```{r save-snps-on-de-genes}
+# Select only the desired columns
+data_to_save <- snps_expression[, c("SNP", "Chromosome", "Position_chr")]
+
+# Write the selected data to a file
+write.table(
+  data_to_save,
+  file = here("output", "snpeff", "SNPs_on_DE_genes.txt"),
+  row.names = FALSE,
+  quote = FALSE,
+  col.names = TRUE,
+  sep = "\t" # or use "," for CSV format
+)
+```
+
+
+Now we can check if any of the SNPs we found in our analysis are within these genes. If we do not find any, them we can develop a different approach, which is find the nearest gene for the SNPs or the nearest SNP for the genes of interest.
+
+First lets check the 17 SNPs that we find in common
+
+```{r load-common-snps-17}
+snps01<- read_delim(here("output", "pcadapt", "4_way_venn_common_SNPs_pcadapt_outflank.txt"), delim = "\t", col_names = c("SNP"), show_col_types = FALSE)
+head(snps01)
+```
+
+Check how many SNPs
+```{r count-common-snps-17}
+length(snps01$SNP)
+```
+
+Check if there is any differentially expressed gene with one of these SNPs
+```{r filter-17-snps-in-de-genes}
+# Filter snps_expression to keep only the rows that have a matching SNP in snps01
+filtered_snps_expression <- snps_expression |>
+  semi_join(snps01, by = "SNP")
+head(filtered_snps_expression)
+```
+None of the 17 SNPs are present in the genes. Now we can expand our search.
+
+```{r load-outlier-snps-all-comparisons}
+# Lets check all the SNPs from the comparisons of the populations vs the autogenous line
+# Read data from txt files
+MAN_AUT <-
+  read.table(
+    here("output", "outflank", "man_aut_SNPs_outFlank.txt"),
+    stringsAsFactors = FALSE
+  ) |>
+  drop_na()
+
+
+NEW_AUT <-
+  read.table(
+    here("output", "outflank", "new_aut_SNPs_outFlank.txt"),
+    stringsAsFactors = FALSE
+  )
+
+NEW_MAN_AUT <-
+  read.table(
+    here("output", "outflank", "SNPs_outFlank.txt"),
+    stringsAsFactors = FALSE
+    )
+```
+
+Merge them and get a SNP count
+```{r combine-outlier-snps-count}
+# Combine all three data frames into one
+combined_df <- bind_rows(MAN_AUT, NEW_AUT, NEW_MAN_AUT)
+
+# Count unique values and add a 'Count' column
+result <- combined_df %>%
+  group_by(V1) %>%
+  summarise(Count = n()) %>%
+  arrange(V1) |>
+  dplyr::rename(SNP = V1)
+
+# Show the result
+head(result)
+```
+
+How many SNPs?
+```{r count-unique-outlier-snps}
+length(unique(result$SNP))
+```
+
+```{r find-common-elements-all-three}
+common_elements2 <- Reduce(intersect, list(NEW_MAN_AUT$V1, MAN_AUT$V1, NEW_AUT$V1))
+
+```
+
+
+
+How many SNPs out of the 158 are on genes with differential expression
+```{r filter-158-snps-in-de-genes}
+filtered_snps_expression2 <- snps_expression |>
+  semi_join(result, by = "SNP")
+length(filtered_snps_expression2$SNP)
+```
+
+```{r show-unique-snps-on-de-genes}
+unique(filtered_snps_expression2$SNP)
+```
+
+Save it
+```{r save-snps-79-de}
+write.table(
+  filtered_snps_expression2$SNP,
+  file = here("output", "snpeff","SNPs_79_DE.txt"),
+  row.names = FALSE,
+  quote = FALSE,
+  col.names = FALSE,
+  sep = "\n"
+)
+```
+
+
+We can also check if any of the 157 outliers
+
+Select the 17 SNPs outliers identified in all 3 comparisons where we had the AUT line. See the 4 way Venn diagram
+```{r load-17-snps-aut-outliers}
+snps_17 <-
+  read.table(
+    here("output", "pcadapt", "4_way_venn_common_SNPs_pcadapt_outflank.txt"),
+    stringsAsFactors = FALSE
+    )
+
+# Get the 17 SNPs
+snps_aut17 <- snps_expression |>
+  filter(SNP %in% snps_17$V1)
+
+head(snps_aut17)
+```
+
+```{r load-snps-158-outliers}
+snps_157 <-
+  read.table(
+    here("output", "snpeff", "SNPs_158.txt"),
+    stringsAsFactors = FALSE
+    )
+
+# Get the 17 SNPs
+snps_aut157 <- snps_expression |>
+  filter(SNP %in% snps_157$V1)
+
+head(snps_aut157)
+```
+
+
+
+
+
+```{r join-157-snps-with-genes}
+# Perform an inner join using the SNP column from snps_genes_chr and the V1 column from snps_157
+snps_157_genes <- inner_join(snps_genes_chr, snps_157, by = c("SNP" = "V1"))
+
+# View the first few rows of the merged dataset
+head(snps_157_genes)
+
+```
+
+
+Save it
+```{r save-157-snps-genes-xlsx}
+write.xlsx(
+  snps_157_genes,
+  here(
+    "output", "snpeff","genes_with_114_SNPs_out_of_157_outliers.xlsx"
+    )
+  )
+```
+
+
+Lets look what are the nearest gene of all the 158 SNPs, then we can filter out whatever way we want. We need to do SNP functional annotation for all the SNPs.
+
+To do the functional annotation we need to include all SNPs, so we can use file1.
+
+Let's create a vcf file for the annotation
+
+```{bash}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file1 \
+--recode vcf \
+--out output/snpeff/albo \
+--silent;
+grep "samples\|variants" output/snpeff/albo.log
+```
+
+Now check the R Markdown with functional annotation
+
+Create bed file
+
+```{r create-snps-functional-bed}
+snps_functional <- snps_genes_chr %>%
+  filter(SNP %in% result$SNP) |>
+  dplyr::select(
+    SNP, Scaffold, Position
+  )
+head(snps_functional)
+```
+
+```{r write-bed-file}
+# Assuming snps_functional
+write.table(snps_functional %>%
+              select(SNP, Scaffold, Position) %>%
+              mutate(End = Position + 1),
+            file = here("output", "snpeff","snps_functional.bed"),
+            quote = FALSE,
+            row.names = FALSE,
+            col.names = FALSE,
+            sep = "\t")
+
+```
+
+Check it out
+```{bash}
+head output/snpeff/snps_functional.bed
+```
+
+
+> **Note:** The cluster-gene intersection analysis (clusters 14 and 6 with differentially expressed genes) has been moved to File S4e (LDna combined analysis), which creates the cluster objects and performs the intersection in a single notebook.

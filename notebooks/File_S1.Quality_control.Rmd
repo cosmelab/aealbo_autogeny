@@ -1,0 +1,1194 @@
+---
+title: "Autogenous - quality control."
+author: "Luciano V Cosme"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: breezedark
+    css:
+      - "styles.css"
+    toc: yes
+    toc_float: no
+    toc_depth: 5
+editor_options:
+  markdown:
+    wrap: 120
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval                        = TRUE,
+  echo                        = TRUE,
+  cache                       = FALSE,
+  class.output                = "bg-success"
+)
+knitr::opts_knit$set(
+  root.dir = here::here()
+)
+```
+
+> **Population label key:** The code labels used in the analysis below correspond to the following manuscript labels: AUT = AUTO, MAN = NON-AUTO, NEW = NON-AUTO-FIELD.
+
+## 1. Getting started: R libraries and software for QC
+
+## 1.1 R libraries and software
+
+```{r libraries, message=FALSE, results='hide'}
+library(tidyverse)
+library(here)
+library(scales)
+library(RColorBrewer)
+library(ggrepel)
+library(adegenet)
+
+source(here("notebooks", "helpers", "my_theme2.R"))
+source(here("notebooks", "helpers", "import_bim.R"))
+```
+
+## 1.2 Software
+
+All analyses were performed inside a reproducible container (`ghcr.io/cosmelab/albopictus-autogeny:latest`) with PLINK 1.9, PLINK 2, bcftools, samtools, bedtools, snpEff, and R 4.2. See the [Dockerfile](../Dockerfile) and [pixi.toml](../pixi.toml) for the full dependency list.
+
+Quality control follows the general guidelines of [Marees et al. (2018)](https://doi.org/10.1002/mpr.1608).
+
+## 2. The data
+
+The data was prepared with family and individual IDs assigned, and reference alleles set to match the AalbF3 genome assembly.
+
+```{bash check_sample_names_in_vcf_file}
+bcftools query -l data/genotype_calls/autogenous.vcf | wc -l
+```
+
+## 2.1 Use Plink2 to convert to bed format
+
+```{bash plink2_convert_vcf_to_bed1}
+plink2 \
+--allow-extra-chr \
+--vcf data/genotype_calls/autogenous.vcf \
+--const-fid \
+--make-bed \
+--exclude data/files/albopictus_SNPs_fail_segregation.txt \
+--fa data/genome/albo.fasta.gz \
+--ref-from-fa 'force' `# sets REF alleles when it can be done unambiguously, we use force to change the alleles` \
+--out output/quality_control/file1 \
+--silent;
+grep "variants" output/quality_control/file1.log
+```
+
+
+## 2.2 Use R to update the .fam file
+
+Sample metadata was imported to update the `.fam` file with population assignments.
+
+```{r import_fam_file_Axiom}
+samples <-
+  read.delim(
+    file   = here(
+      "data",
+      "files",
+      "meta_data.txt"
+    ),
+    header = TRUE
+  )
+head(samples)
+```
+
+```{r import_fam_dp}
+fam1 <-
+  read.delim(
+    file   = here(
+      "output", "quality_control", "file1.fam"
+    ),
+    header = FALSE,
+
+  )
+head(fam1)
+```
+
+```{r merge_objects1}
+# Extract the number part from the columns
+fam1_temp <- fam1 |>
+  mutate(num_id = as.numeric(str_extract(V2, "^\\d+")))
+
+samples_temp <- samples |>
+  mutate(num_id = as.numeric(str_extract(Sample.Filename, "^\\d+")))
+
+# Perform the left join using the num_id columns and keep the order of fam1
+df <- fam1_temp |>
+  dplyr::left_join(samples_temp, by = "num_id") |>
+  dplyr::select(-num_id) |>
+  dplyr::select(8:13)
+
+head(df)
+```
+
+```{r check_number_samples_df}
+nrow(df)
+```
+
+The original `.fam` is overwritten with updated metadata.
+
+```{r save_new_fam_file}
+# Update .fam with sample metadata
+write.table(
+  df,
+  file      = here(
+    "output", "quality_control", "file1.fam"
+  ),
+  sep       = "\t",
+  row.names = FALSE,
+  col.names = FALSE,
+  quote     = FALSE
+)
+```
+
+## 2.3 Checking the number of samples and localities
+
+```{bash get_pops_n}
+awk '{print $1}' output/quality_control/file1.fam | sort | uniq -c | awk '{print $2, $1}'
+```
+
+## 3. Quality control steps
+
+## 3.1 Missingness
+
+```{bash plink2_filter_SNP}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file1 \
+--geno 0.2                `# we set genotype missiningness to 20% with this option` \
+--make-bed \
+--out output/quality_control/file2 \
+--silent \
+--missing;                 # --missing produces sample-based and variant-based missing data reports. If run with --within/--family, the variant-based report is stratified by cluster.
+grep "variants" output/quality_control/file2.log
+```
+
+```{r plot_ind_missingness}
+indmiss <-
+  read.delim(
+    file   = here(
+      "output", "quality_control", "file2.smiss"
+    ),
+    header = TRUE
+  )
+
+snpmiss <-
+  read.delim(
+    file   = here(
+      "output", "quality_control", "file2.vmiss"
+    ),
+    header = TRUE
+  )
+```
+
+```{r plot_individual_missingness, warning=FALSE}
+ggplot(
+  indmiss,
+  aes(
+    x = F_MISS
+  )
+) +
+  geom_histogram(
+    color            = "black",
+    fill             = "#B6FAD7",
+    bins             = 6
+  ) +
+  geom_text(
+    stat             = "bin",
+    aes(
+    label = after_stat(count)
+  ),
+    vjust            = -0.5,
+    color            = "purple",
+    size             = 3,
+    bins             = 6
+  ) +
+  geom_vline(
+    aes(
+    xintercept = mean(F_MISS)),
+    color            = "orange",
+    linetype         = "dotted",
+    linewidth        = .5
+  ) +
+  annotate(
+    "text",
+    x = mean(indmiss$F_MISS),
+    y = 30,
+    label = paste0(
+      "Mean \n",
+      scales::percent(mean(indmiss$F_MISS),
+        accuracy = 0.01
+      )
+    ),
+    size = 3,
+    color = "orange",
+    hjust = -.1
+  ) +
+  labs(
+    x                = "Individual Missingness (%)",
+    y                = "Frequency (n)"
+  ) +
+  my_theme() +
+  scale_x_continuous(
+    labels           = scales::percent,
+    n.breaks         = 6
+  )
+
+ggsave(
+  here(
+    "output", "quality_control", "figures" , "individual_missingness.pdf"
+  ),
+  width              = 7,
+  height             = 5,
+  units              = "in"
+)
+```
+
+```{r plot_variant_missingness, warning=FALSE}
+ggplot(
+  snpmiss,
+  aes(
+    x = F_MISS
+  )
+) +
+  geom_histogram(
+    color = "black",
+    fill = "#B6FAD7",
+    bins = 6
+  ) +
+  stat_bin(
+    geom = "text",
+    aes(
+      label = format(
+        after_stat(count),
+        big.mark = ",",
+        scientific = FALSE
+      )
+    ),
+    vjust = -0.5,
+    color = "purple",
+    size = 2,
+    bins = 6
+  ) +
+  geom_vline(
+    aes(
+      xintercept = mean(F_MISS)
+    ),
+    color = "orange",
+    linetype = "dotted",
+    linewidth = 0.5
+  ) +
+  annotate(
+    "text",
+    x = mean(snpmiss$F_MISS),
+    y = 16000,
+    label = paste0(
+      "Mean \n",
+      scales::percent(mean(snpmiss$F_MISS),
+        accuracy = 0.01
+      )
+    ),
+    size = 3,
+    color = "orange",
+    vjust = -.2
+  ) +
+  labs(
+    x = "Variant Missingness (%)",
+    y = "Frequency (n)"
+  ) +
+  scale_x_continuous(
+    labels = scales::percent,
+    n.breaks = 6
+  ) +
+  scale_y_continuous(
+    labels = scales::label_comma(),
+    n.breaks = 5
+  ) +
+  my_theme()
+
+ggsave(
+  here(
+    "output", "quality_control", "figures", "SNPs_missingness.pdf"
+  ),
+  width  = 7,
+  height = 5,
+  units  = "in"
+)
+```
+
+Individuals with >20% missing genotypes were removed.
+
+```{bash plink2_filter_ind}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file2 \
+--mind 0.2               `# here we set the individual missingness threshold of 20%`\
+--make-bed \
+--out output/quality_control/file3 \
+--silent;
+grep "samples\|variants" output/quality_control/file3.log
+```
+No individuals were removed due to missingness.
+
+## 3.2 Minor allele frequency
+
+Allele frequency distribution was estimated with PLINK2.
+```{bash plink2_MAF_check}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file3 \
+--freq \
+--out output/quality_control/MAF_check \
+--silent
+```
+
+```{r import_MAF}
+maf_freq <-
+  read.delim(
+    here(
+      "output", "quality_control", "MAF_check.afreq"
+    ),
+    header = TRUE
+  )
+```
+
+```{r plot_MAF, warning=FALSE}
+ggplot(
+  maf_freq,
+  aes(ALT_FREQS)
+) +
+  geom_histogram(
+    colour = "black",
+    fill = "#C4F3F5",
+    bins = 40
+  ) +
+  labs(
+    x = "Minor Allele Frequency (MAF)",
+    y = "Frequency (n)",
+    caption = "Red line at MAF 10% threshold."
+  ) +
+  annotate(
+    "text",
+    x = .1,
+    y = 8000,
+    label = "15,890 SNPs",
+    size = 3,
+    color = "blue",
+    vjust = -.2
+  ) +
+  geom_vline(xintercept = 0.1, color = "red") +
+  my_theme() +
+  theme(plot.caption = element_text(face = "italic")) +
+  scale_y_continuous(label = scales::number_format(big.mark = ",")) +
+  scale_x_continuous(breaks = c(0, 0.1, 0.2, 0.4, 0.6, 0.8, 1))
+
+ggsave(
+  here(
+    "output", "quality_control", "figures", "MAF.pdf"
+  ),
+  width  = 5,
+  height = 4,
+  units  = "in"
+)
+```
+
+Now we apply the MAF filter.
+```{bash filter_MAF}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file3 \
+--maf 0.01 \
+--make-bed \
+--out output/quality_control/file4 \
+--silent;
+grep "variants" output/quality_control/file4.log
+```
+
+HWE was tested per population following Marees et al. (2018).
+
+```{bash mkdirs_4_HWE}
+mkdir -p output/quality_control/hardy;
+cp output/quality_control/file4.* output/quality_control/hardy/
+```
+
+## 3.3 HWE test
+
+HWE was tested per population with a p-value threshold of 1e-6. SNP missingness was re-applied within each population to stabilize HWE estimates.
+
+```{bash loop_filter_HWE}
+for fam in $(awk '{print $1}' output/quality_control/hardy/file4.fam | sort | uniq);
+do
+echo $fam | \
+plink2 \
+--allow-extra-chr \
+--silent \
+--keep-allele-order \
+--bfile output/quality_control/hardy/file4 \
+--keep-fam /dev/stdin \
+--make-bed \
+--out output/quality_control/hardy/$fam \
+--hwe 0.000001 \
+--geno 0.1 \
+--write-snplist; \
+done
+```
+
+SNPs passing HWE in all populations were retained.
+
+```{bash get_SNP_list_after_HWE}
+cat output/quality_control/hardy/*.snplist | awk '!a[$0]++' > output/quality_control/passed_hwe.txt;
+wc -l output/quality_control/passed_hwe.txt
+```
+
+How many variants we had before
+
+```{bash check_n_variants_before_HWE}
+cat output/quality_control/file4.bim | awk '{print $2}'| awk '!a[$0]++' | wc -l
+```
+
+Variants not passing HWE test
+```{r}
+111220 - 110353
+```
+
+Remove the SNPs that failed
+```{bash remove_failed_hwe}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file4 \
+--extract output/quality_control/passed_hwe.txt \
+--make-bed \
+--out output/quality_control/file4a \
+--silent;
+grep "variants" output/quality_control/file4a.log
+```
+
+## 3.4 LD pruning
+
+```{bash linkage_prunning}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file4a \
+--indep-pairwise 5 1 0.1 \
+--out output/quality_control/indepSNP \
+--silent;
+grep 'pairwise\|variants\|samples' output/quality_control/indepSNP.log
+```
+
+
+## 3.6 Heterozygosity
+```{bash plink1.9_estimate_heterozygosity}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file4a \
+--extract output/quality_control/indepSNP.prune.in \
+--het \
+--out output/quality_control/R_check \
+--silent;
+grep 'variants' output/quality_control/R_check.log
+```
+
+```{r plot_heterozygosity}
+het <- read.delim(
+  here(
+    "output", "quality_control", "R_check.het"
+  ),
+  head = TRUE
+)
+colnames(het)
+```
+
+Heterozygosity rate was calculated per individual. Individuals deviating more than 4 SD from the mean were flagged.
+
+```{r calculate_het}
+het$HET_RATE <- (het$"OBS_CT" - het$"O.HOM") / het$"OBS_CT"
+
+het_fail <-
+  subset(
+    het, (het$HET_RATE < mean(
+      het$HET_RATE
+    ) - 4 * sd(
+      het$HET_RATE
+    )) |
+      (het$HET_RATE > mean(
+        het$HET_RATE
+      ) + 4 * sd(
+        het$HET_RATE
+      ))
+  )
+
+het_fail$HET_DST <-
+  (het_fail$HET_RATE - mean(
+    het$HET_RATE
+  )) / sd(
+    het$HET_RATE
+  )
+```
+
+```{r save_list_fail_het}
+write.table(
+  het_fail,
+  here(
+    "output", "quality_control", "fail-het-qc.txt"
+  ),
+  row.names = FALSE
+)
+```
+
+```{r plot_het, warning=FALSE}
+ggplot(
+  het,
+  aes(
+    HET_RATE
+  )
+) +
+  geom_histogram(
+    colour           = "black",
+    fill             = "#CDFAF8",
+    bins             = 40
+  ) +
+  labs(
+    x                = "Heterozygosity Rate",
+    y                = "Number of Individuals"
+  ) +
+  geom_vline(
+    aes(
+      xintercept     = mean(
+        HET_RATE
+      )
+    ),
+    col              = "#F2C46F",
+    linewidth        = 1.5
+  ) +
+  geom_vline(
+    aes(
+      xintercept     = mean(
+        HET_RATE
+      ) + 4 * sd(
+        HET_RATE
+      )
+    ),
+    col              = "#BFB9B9",
+    linewidth        = 1
+  ) +
+  geom_vline(
+    aes(
+      xintercept     = mean(
+        HET_RATE
+      ) - 4 * sd(
+        HET_RATE
+      )
+    ),
+    col              = "#BFB9B9",
+    linewidth        = 1
+  ) +
+  my_theme() +
+  scale_y_continuous(
+    labels           = comma
+  )
+
+ggsave(
+  here(
+    "output", "quality_control", "figures", "Heterozygosity.pdf"
+  ),
+  width  = 5,
+  height = 4,
+  units  = "in"
+)
+```
+
+The orange line indicates the mean; gray lines indicate +/- 4 SD. Individuals identified as outliers were listed for removal.
+
+```{bash parse_R_het_output}
+sed 's/"// g' output/quality_control/fail-het-qc.txt | awk '{print$1, $2}'> output/quality_control/het_fail_ind.txt;
+echo 'How many mosquitoes we need to remove from our data set:';
+cat output/quality_control/het_fail_ind.txt | tail -n +2 | wc -l;
+echo 'Which mosquitoes we have to remove:';
+tail -n +2 output/quality_control/het_fail_ind.txt
+```
+Two individuals were identified as heterozygosity outliers and removed from the dataset.
+
+Heterozygosity outliers were removed:
+```{bash plink2_remove_fail_het}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file4a \
+--remove output/quality_control/het_fail_ind.txt \
+--make-bed \
+--out output/quality_control/file5 \
+--silent;
+grep 'variants\|samples' output/quality_control/file5.log
+```
+
+## 3.7 Relatedness
+
+Cryptic relatedness was assessed with KING kinship coefficients (Manichaikul et al. 2010). KING coefficients are scaled such that duplicate samples have kinship 0.5, first-degree relations ~0.25, and second-degree relations ~0.125. A cutoff of 0.354 (geometric mean of 0.5 and 0.25) was used to screen for duplicates.
+
+
+```{bash plink2_make_king}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file5 \
+--extract output/quality_control/indepSNP.prune.in \
+--make-king-table rel-check \
+--king-table-filter 0.354 \
+--out output/quality_control/file5a \
+--silent;
+grep 'variants\|samples' output/quality_control/file5a.log
+```
+
+Individuals flagged by the KING relatedness filter:
+
+```{bash check_kin0}
+head output/quality_control/file5a.kin0
+```
+No related individuals were found.
+
+```{bash remove_related1}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file5 \
+--extract output/quality_control/indepSNP.prune.in \
+--make-king triangle bin \
+--out output/quality_control/file6 \
+--silent;
+grep 'variants\|samples' output/quality_control/file6.log
+```
+
+PLINK2 removed related individuals while maximizing sample retention.
+```{bash remove_related2}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file5 \
+--king-cutoff output/quality_control/file6 0.354 \
+--make-bed \
+--out output/quality_control/file7 \
+--silent;
+grep 'samples\|variants\|remaining' output/quality_control/file7.log
+```
+
+```{bash check_id_removed_individuals}
+head -n 10 output/quality_control/file7.king.cutoff.out.id
+```
+
+No individuals were removed due to relatedness.
+
+## 3.8 Quick PCA with Plink using the LD pruned data
+
+```{bash plink_pca}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file7 \
+--pca allele-wts \
+--freq \
+--out output/quality_control/pca_pops \
+--silent;
+grep 'samples\|variants' output/quality_control/pca_pops.log
+```
+
+```{r import_pca}
+pca <- read.delim(
+  here(
+    "output", "quality_control", "pca_pops.eigenvec"
+  ),
+  head = TRUE
+)
+
+head(pca)
+```
+```{r simple_pca_plot1, fig.height=5, fig.width=7}
+
+# Shapes
+N = 100
+M = 1000
+good.shapes = c(1:25, 33:127)
+
+# Colors
+palette1 <- brewer.pal(12, "Paired")
+palette2 <- brewer.pal(11, "Set3")
+palette23 <- c(palette1, palette2)
+
+# Recode population labels to manuscript names
+pca$X.FID <- recode(pca$X.FID,
+  "AUT" = "AUTO", "MAN" = "NON-AUTO", "NEW" = "NON-AUTO-FIELD")
+
+# Compute the count
+family_count <- pca |>
+  group_by(X.FID) |>
+  summarize(count = n())
+
+# Merge the count back to the main data
+df4 <- pca |>
+  left_join(family_count, by = "X.FID")
+
+# Create a custom label for the legend
+df4$family_label <-
+  paste(df4$X.FID, " (", df4$count, ")", sep = "")
+
+# Define the color and shape manually
+palette23 <- c(palette1, palette2)
+colors <- setNames(palette23, unique(df4$family_label))
+shapes <-
+  setNames(good.shapes[c(1:25, 58:67)], unique(df4$family_label))
+
+
+# Compute the center of ellipses for each continent
+ellipse_centers <- df4 |>
+  group_by(X.FID) |>
+  summarise(PC1_center = mean(PC1), PC2_center = mean(PC2))
+
+# Create the plot
+ggplot(df4, aes(PC1, PC2)) +
+  geom_point(aes(shape = family_label, color = family_label)) +
+  stat_ellipse(
+    aes(fill = X.FID, group = X.FID),
+    geom = "polygon",
+    alpha = 0.2,
+    level = 0.8,
+    segments = 40,
+    color = "transparent",
+    show.legend = FALSE
+  ) +
+  geom_text_repel(
+    data = ellipse_centers,
+    aes(x = PC1_center, y = PC2_center, label = X.FID),
+    color = c("black", "red", "blue")
+  ) +
+  xlab("PC1 (7.94% Variance)") +
+  ylab("PC2 (4.09% Variance)") +
+  guides(
+  color = guide_legend(title = "Family", order = 1, ncol = 3),
+  shape = guide_legend(title = "Family", order = 1, ncol = 3),
+  fill = guide_legend(title = "Family", order = 1, ncol = 3)
+  ) +
+  scale_fill_manual(values = c("gray", "red", "lightblue"), labels = df4$family_label) +
+  scale_color_manual(values = c("black", "red", "blue")) +
+  scale_shape_manual(values = shapes) +
+  theme_classic() +
+  theme(
+    plot.caption = element_text(face = "italic"),
+    legend.position = "top",
+    legend.direction = "horizontal",
+    legend.justification = "center",
+    legend.box.just = "center",
+    legend.box.background = element_blank(),
+    plot.margin = margin(5.5, 30, 5.5, 5.5, "points"),
+    legend.margin = margin(10, 10, 10, 10)
+)
+
+ggsave(
+  here(
+    "output", "quality_control", "figures", "PCA_plink.pdf"
+  ),
+  width  = 7,
+  height = 5,
+  units  = "in"
+)
+```
+
+```{r save_pca_data}
+objects <- ls()
+save(list = objects, file = here(
+    "output", "quality_control", "figures", "pca.RData"
+  ))
+```
+
+
+
+
+## 4. Create chromosomal scale
+
+Import the .bim file with the SNPs to create a new chromosomal scale.
+
+```{r import_bim_for_chrscale}
+snps <-
+  read_delim(
+    here(
+      "output", "quality_control", "file7.bim"
+    ),
+    col_names      = FALSE,
+    show_col_types = FALSE,
+    col_types      = "ccidcc"
+  )
+
+colnames(snps) <- c("Scaffold", "SNP", "Cm", "Position", "Allele1", "Allele2")
+
+head(snps)
+```
+
+SNP data were separated by chromosome.
+
+```{r separate_data_into_chroms}
+chr_snps_list <- list()
+for (chr in c("1", "2", "3")) {
+  chr_snps_list[[chr]] <- snps |>
+    filter(str_detect(Scaffold, paste0("^", chr, "\\."))) |>
+    as_tibble()
+}
+```
+
+The reference genome was indexed with samtools.
+
+```{bash index_genome_updated_scaffold_names}
+# index the genome
+samtools faidx data/genome/albo.fasta.gz
+```
+
+Scaffold sizes were extracted from the `.fai` index file.
+
+```{bash scaffold_order_by_chr}
+awk 'BEGIN{FS=" "; OFS="\t"} {print $1, $2}' data/genome/albo.fasta.gz.fai > data/genome/scaffold_sizes.txt;
+head data/genome/scaffold_sizes.txt
+```
+
+Import the file with sizes of each scaffold.
+
+```{r import_scaffold_sizes}
+sizes <-
+  read_delim(
+    here(
+      "data", "genome", "scaffold_sizes.txt"
+    ),
+    col_names      = FALSE,
+    show_col_types = FALSE,
+    col_types      = "cd"
+  )
+
+colnames(sizes) <- c("Scaffold", "Size")
+
+sizes <-
+  sizes |>
+  mutate(
+    Chromosome = case_when(
+      startsWith(Scaffold, "1") ~ "1",
+      startsWith(Scaffold, "2") ~ "2",
+      startsWith(Scaffold, "3") ~ "3"
+    )
+  ) |>
+  arrange(Scaffold)
+
+head(sizes)
+```
+
+Create new scale. Get the scaffolds for each chromosome.
+
+```{r get_list_scaffolds_per_chr}
+chr_scaffolds_list <- list()
+for (chr in c("1", "2", "3")) {
+  chr_scaffolds_list[[chr]] <- sizes |>
+    filter(str_detect(Scaffold, paste0("^", chr))) |>
+    as_tibble()
+}
+```
+
+Create a scale for each chromosome.
+
+```{r create_chr_scale}
+for (chr in c("1", "2", "3")) {
+  chr_scaffolds_list[[chr]]$overall_size_before_bp <- 0
+  for (i in 2:nrow(chr_scaffolds_list[[chr]])) {
+    chr_scaffolds_list[[chr]]$overall_size_before_bp[i] <-
+      chr_scaffolds_list[[chr]]$overall_size_before_bp[i - 1] +
+      chr_scaffolds_list[[chr]]$Size[i - 1]
+  }
+}
+```
+
+Merge the data frames scaffolds and SNPs.
+
+```{r merge_snps_scales}
+chr_scale_list <- list()
+for (chr in c("1", "2", "3")) {
+  chr_scale_list[[chr]] <- chr_snps_list[[chr]] |>
+    left_join(chr_scaffolds_list[[chr]], by = "Scaffold") |>
+    na.omit() |>
+    mutate(
+      midPos_fullseq = as.numeric(Position) + as.numeric(overall_size_before_bp)
+    )
+}
+```
+
+Merge all chromosome scales.
+
+```{r bind_chr_scales}
+chroms <- bind_rows(chr_scale_list) |>
+  dplyr::select(
+    Chromosome, SNP, Cm, midPos_fullseq, Allele1, Allele2
+  )
+head(chroms)
+```
+
+```{r save_bim_chrscale}
+write.table(
+  chroms,
+  file      = here(
+    "output", "quality_control", "file7B.bim"
+  ),
+  sep       = "\t",
+  row.names = FALSE,
+  col.names = FALSE,
+  quote     = FALSE
+)
+```
+
+Rename the .bim files
+
+```{bash rename_bim}
+mv output/quality_control/file7.bim output/quality_control/file7_backup.bim;
+mv output/quality_control/file7B.bim output/quality_control/file7.bim
+```
+
+Validation check with PLINK2 to confirm variant ordering:
+
+```{bash test_bim}
+plink2 \
+--bfile output/quality_control/file7 \
+--make-bed \
+--out output/quality_control/test01;
+rm output/quality_control/test01.*
+```
+
+No warnings from PLINK2.
+
+## 5. Plot SNP density
+
+After quality control with 110,353 SNPs
+
+```{r import_qc_data_for_density_plot, warning=FALSE}
+snp_den_qc <- import_bim(
+  here(
+    "output", "quality_control", "file7.bim"
+  )
+)
+```
+
+Make plot of the SNP density
+
+```{r make_density_plot_qc_data, warning=FALSE}
+snp_den_qc |>
+  rename(
+    Chromosome = 1
+  ) |>
+  mutate(
+    Position           = as.numeric(
+      Position
+    )
+  ) |>
+  ggplot(
+    aes(
+      x                = Position
+    )
+  ) +
+  geom_histogram(
+    aes(
+      y                = after_stat(
+        count
+      )
+    ),
+    binwidth           = 1e6
+  ) +
+  facet_wrap(
+    vars(
+      Chromosome
+    ),
+    scales             = "free_x"
+  ) +
+  labs(
+    title              = "SNP Density after QC",
+    x                  = expression(
+      "Position in the genome (Mb)"
+    ),
+    y                  = expression(
+      "Number of SNPs"
+    )
+  ) +
+  scale_x_continuous(
+    labels             = function(x) {
+      format(
+        x / 1e6,
+        big.mark       = ",",
+        scientific     = FALSE
+      )
+    }
+  ) +
+  geom_density(
+  aes(
+    y = 1e6 * after_stat(count)
+  ),
+  color = "red",
+  linewidth = .75,
+  alpha = .4,
+  fill = "pink"
+  ) +
+  theme_minimal(
+    base_size          = 12
+  ) +
+  theme(
+    panel.grid.major   = element_line(
+      linetype         = "dashed",
+      linewidth        = 0.2,
+      color            = "#fabbe2"
+    ),
+    panel.grid.minor   = element_line(
+      linetype         = "dashed",
+      linewidth        = 0.2,
+      color            = "#fabbe2"
+    ),
+    panel.spacing      = unit(0.5, "lines"),
+    strip.text         = element_text(
+      face             = "bold", hjust = .5
+    ),
+    strip.background.x = element_rect(
+      color            = "gray"
+    ),
+    plot.margin        = margin(10, 10, 10, 10),
+    axis.text          = element_text(size = 12),
+    axis.title         = element_text(size = 14)
+  )
+
+ggsave(
+  here(
+    "output", "quality_control","figures", "snp_density_after_qc.pdf"
+  ),
+  width  = 10,
+  height = 6,
+  units  = "in"
+)
+```
+
+SNPs per chromosome
+
+```{r SNPs_per_chromsomosome_after_QC}
+snps_per_chrm <-
+  snp_den_qc |>
+  count(
+    Scaffold) |>
+  rename(
+    Chromosome = 1,
+    "SNPs (N) " = 2
+  )
+
+knitr::kable(snps_per_chrm, caption = "SNPs per chromosome after quality control")
+```
+
+Mean SNP density per 1 Mb window by chromosome:
+
+```{r SNPs_per_1Mb_window}
+albo_den <-
+  snp_den_qc |>
+  dplyr::select(
+    Scaffold, Position
+  ) |>
+  group_by(
+    Scaffold,
+    windows               = cut_width(
+      Position,
+      width               = 1e6,
+      boundary            = 0
+    )
+  ) |>
+  summarise(
+    n                     = n(),
+    .groups               = "keep"
+  ) |>
+  group_by(
+    Scaffold
+  ) |>
+  summarise(
+    mean                  = mean(n),
+    n                     = n(),
+    .groups               = "keep"
+  ) |>
+  rename(
+    Chromosome            = 1,
+    "SNPs per 1Mb window" = 2,
+    "Number of windows"   = 3
+  )
+knitr::kable(albo_den, caption = "SNPs per 1Mb window")
+```
+
+```{r merge_obj}
+after_qc <-
+  snps_per_chrm |>
+  left_join(
+    albo_den,
+    by = "Chromosome"
+  )
+knitr::kable(after_qc, caption = "QC summary per chromosome")
+```
+
+
+
+## 6. Create data sets for downstream analysis
+
+Population subsets were created for pairwise comparisons (see label key in Section 1).
+```{bash}
+echo "MAN
+AUT" > output/quality_control/man_aut.txt;
+echo "NEW
+AUT" > output/quality_control/new_aut.txt;
+echo "MAN
+NEW" > output/quality_control/man_new.txt
+echo "AUT" > output/quality_control/aut.txt
+```
+
+
+VCF and BED files were created for each pairwise comparison using LD-pruned data.
+
+MAN vs AUT
+```{bash}
+plink2 \
+--bfile output/quality_control/file7 \
+--keep-fam output/quality_control/man_aut.txt \
+--export vcf \
+--extract output/quality_control/indepSNP.prune.in \
+--make-bed \
+--geno 0.2 \
+--out output/outflank/man_aut \
+--silent;
+grep "samples\|variants" output/outflank/man_aut.log
+```
+
+NEW vs AUT
+```{bash}
+plink2 \
+--bfile output/quality_control/file7 \
+--keep-fam output/quality_control/new_aut.txt \
+--export vcf \
+--extract output/quality_control/indepSNP.prune.in \
+--make-bed \
+--geno 0.2 \
+--out output/outflank/new_aut \
+--silent;
+grep "samples\|variants" output/outflank/new_aut.log
+```
+
+MAN vs NEW
+```{bash}
+plink2 \
+--bfile output/quality_control/file7 \
+--keep-fam output/quality_control/man_new.txt \
+--export vcf \
+--extract output/quality_control/indepSNP.prune.in \
+--make-bed \
+--geno 0.2 \
+--out output/outflank/man_new \
+--silent;
+grep "samples\|variants" output/outflank/man_new.log
+```
+
+AUT
+```{bash}
+plink2 \
+--bfile output/quality_control/file7 \
+--keep-fam output/quality_control/aut.txt \
+--export vcf \
+--extract output/quality_control/indepSNP.prune.in \
+--make-bed \
+--geno 0.2 \
+--out output/outflank/aut \
+--silent;
+grep "samples\|variants" output/outflank/aut.log
+```
+

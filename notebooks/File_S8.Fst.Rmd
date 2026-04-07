@@ -1,0 +1,1153 @@
+---
+title: "Autogenous - FST estimates"
+author: "Luciano V Cosme"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: breezedark
+    css:
+      - "styles.css"
+    toc: yes
+    toc_float: no
+    toc_depth: 5
+editor_options:
+  markdown:
+    wrap: 120
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval                        = TRUE,
+  echo                        = TRUE,
+  cache                       = FALSE,
+  class.output                = "bg-success"
+)
+knitr::opts_knit$set(
+  root.dir = here::here()
+)
+```
+
+> **Population label key:** The code labels used in the analysis below correspond to the following manuscript labels: AUT = AUTO, MAN = NON-AUTO, NEW = NON-AUTO-FIELD.
+
+## Libraries
+
+```{r libraries, message=FALSE, results='hide'}
+library(tidyverse)
+library(here)
+library(adegenet)
+library(StAMPP)
+library(reshape2)
+library(data.table)
+library(scales)
+```
+
+We can use different data sets to run our fst estimates.
+
+Clean env and memory
+```{r clean-env-memory-init}
+# Remove all objects from the environment
+rm(list = ls())
+
+# Run the garbage collector to free up memory
+gc()
+```
+
+## 1. Estimate pairwise FST for all populations
+
+
+We can convert to raw format
+
+```{bash}
+plink \
+--keep-allele-order \
+--bfile output/ldna/files/file1 \
+--recodeA \
+--out output/fst/pop_pairwise \
+--silent;
+grep 'samples\|variants\|remaining' output/fst/pop_pairwise.log
+```
+
+Look at https://rdrr.io/cran/StAMPP/man/stamppFst.html for details of Fst estimations
+
+```{r read-plink-pairwise, message=FALSE, results='hide'}
+pop_pairwise <-
+  read.PLINK(
+    here(
+      "output", "fst", "pop_pairwise.raw"
+    ),
+    quiet = FALSE,
+    chunkSize = 1000,
+    parallel = require("parallel"),
+    n.cores = 4
+  )
+
+summary(pop_pairwise)
+```
+
+Now lets convert the genlight object to Stampp format, and estimate pairwise Fst values
+
+The command below would also work, but you can simplify it and put only the numbers:
+pop_pairwise2 <- stamppFst(pop_pairwise, nboots=10,  percent=95 + nclusters=8)
+
+This chunk will take a couple minutes to run.
+```{r run-stampp-fst-pairwise}
+# Convert
+pop_pairwise2 <- stamppConvert(pop_pairwise, type="genlight")
+
+# 10 bootstraps, 95% CI, 8 threads
+pop_pairwise2 <- stamppFst(pop_pairwise2, 10, 95, 8)
+```
+
+Save the result
+```{r save-pairwise-fst-rds}
+saveRDS(
+  pop_pairwise2, here(
+    "output", "fst", "pop_pairwise2.rds"
+  )
+)
+```
+
+
+Now lets look at the object
+
+```{r summary-pairwise-fst}
+summary(pop_pairwise2)
+```
+
+If you want you can save the fst values as csv.
+```{r save-pairwise-fst-csv}
+# Convert to data frame
+pop_pairwise2_df <- data.frame(pop_pairwise2)
+
+# Save it
+write.csv(pop_pairwise2_df, file = here("output", "fst", "pop_pairwise2_df.csv"))
+```
+
+Check the Fst values
+```{r check-pairwise-fst-df}
+pop_pairwise2_df
+```
+
+We can subset the object
+```{r subset-fst-pvalue-columns}
+# Create an object for columns with 'Fsts.'
+fst_columns <- grep("Fsts\\.", names(pop_pairwise2_df), value = TRUE)
+fst_df <- pop_pairwise2_df[, fst_columns]
+
+# Create an object for columns with 'Pvalues.'
+pvalue_columns <- grep("Pvalues\\.", names(pop_pairwise2_df), value = TRUE)
+pvalue_df <- pop_pairwise2_df[, pvalue_columns]
+
+# You can view the first few rows of these dataframes to confirm
+head(fst_df)
+head(pvalue_df)
+```
+All the p-values are zero, indicating statistical significance
+
+
+We will convert the data into a matrix.
+```{r build-fst-matrix}
+# First we can rename the columns of the fst values object
+# Use gsub to remove 'Fsts.' from the column names
+names(fst_df) <- gsub("Fsts\\.", "", names(fst_df))
+
+# Create matrix
+aa <- as.matrix(fst_df)
+aa[upper.tri(aa)] <- t(aa)[upper.tri(t(aa))]
+head(aa)
+```
+
+Lets check if the matrix is symmetric.
+```{r check-fst-matrix-symmetric}
+isSymmetric(aa)
+```
+
+
+We will also add NA on the upper left side of the matrix.
+```{r mask-fst-upper-tri}
+aa[lower.tri(aa)] <- NA
+```
+
+
+Now we have to convert the matrix to a data frame to plot it with ggplot.
+
+```{r melt-fst-matrix}
+pairfst.long <- melt(aa)
+summary(pairfst.long)
+```
+
+Now lets plot the data with ggplot.
+You can click in the little square on the top left of the plot to open it on a new window. It will have the right proportions.
+```{r plot-fst-heatmap, fig.width=4, fig.height=4}
+pairfst.f <- ggplot(pairfst.long, aes(Var1, Var2)) +
+  geom_tile(aes(fill = value), colour = "white") +
+  scale_fill_gradient(
+    low = "white",
+    high = "#71b6ff",
+    name = "Fst",
+    na.value = "white",
+    limits = c(0, 0.5)
+  ) +
+  scale_x_discrete(position = "top") +
+  theme_bw() +
+  geom_text(aes(label = ifelse(
+    is.na(value), "", formatC(value, digits = 2, format = "f")
+  )), size = 6) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, size = 20),
+    axis.title = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.text.y = element_text(hjust = 0, size = 20)
+  )
+pairfst.f
+```
+While the Fst between the wild populations, NEW and MAN, is 0.04, the values between them the the autogenous is 0.13.
+
+```{r save-fst-heatmap-pdf}
+output_path <- here("output", "fst", "figures", "pairwise_estimates.pdf")
+ggsave(output_path, pairfst.f, height = 4, width = 4, dpi = 300)
+```
+
+## 2. Estimate Fst between males and females
+> **Note:** This section (sex-stratified pairwise Fst) was not used in the final version of the manuscript.
+
+We do not have sex information for mosquitoes of MAN, but we do have it for NEW and AUT
+
+We can import the fam file to identify males and females
+```{r read-fam-file}
+# Specify the path using the 'here' function
+fam_file_path <- here("output", "ldna", "files", "file1.fam")
+
+# Now, read the file using the path - using data.table library
+fam_data <- fread(fam_file_path, header = FALSE)
+
+# Rename columns for clarity
+setnames(fam_data, c("FID", "IID", "PID", "MID", "Sex", "Phenotype"))
+
+head(fam_data)
+```
+
+Separate males and females per population
+```{r split-males-females-per-pop}
+# Create a list of data frames, each representing a different FID
+fam_list <- split(fam_data, fam_data$FID)
+
+# Initialize lists to store male and female data separately for each FID
+males_per_fid <- list()
+females_per_fid <- list()
+
+# Loop through each FID and subset males and females
+for(fid in names(fam_list)) {
+    males_per_fid[[fid]] <- fam_list[[fid]][Sex == 1, ]
+    females_per_fid[[fid]] <- fam_list[[fid]][Sex == 2, ]
+}
+```
+
+
+Now we can save a list of mosquitoes for which we know the sex information
+```{r save-sex-known-individuals}
+# Combine male and female data into one data frame
+combined_data <- rbindlist(c(males_per_fid, females_per_fid), use.names = TRUE, fill = TRUE)
+
+# Select only the FID and IID columns
+plink_data <- combined_data[, .(FID, IID)]
+
+# Export the combined data to a text file
+fwrite(plink_data, file = here("output", "fst", "male_female.txt"), sep = "\t", quote = FALSE)
+```
+
+Now we can subset the data
+```{bash}
+plink \
+--keep-allele-order \
+--bfile output/ldna/files/file1 \
+--keep output/fst/male_female.txt \
+--out output/fst/new_aut \
+--make-bed \
+--silent;
+grep 'samples\|variants\|remaining' output/fst/new_aut.log
+```
+
+We can import the fam file to identify males and females
+```{r read-fam-sex-subset}
+# Specify the path using the 'here' function
+fam_file_path <- here("output", "fst", "new_aut.fam")
+
+# Now, read the file using the path - using data.table library
+fam_data2 <- fread(fam_file_path, header = FALSE)
+
+# Rename columns for clarity
+setnames(fam_data2, c("FID", "IID", "PID", "MID", "Sex", "Phenotype"))
+
+head(fam_data2)
+```
+
+Now we can change the FID to separate the males and females for each population, so we end up with 4 groups of mosquitoes
+```{r add-sex-suffix-to-fid}
+# Add the suffix '_M' or '_F' to the IID column based on the Sex column
+fam_data2$FID <-
+  ifelse(
+    fam_data2$Sex == 1,
+    paste0(fam_data2$FID, "_M"),
+    ifelse(fam_data2$Sex == 2, paste0(fam_data2$FID, "_F"), fam_data2$FID)
+  )
+
+# Now you can check the first few rows to confirm the change
+head(fam_data2)
+```
+Now we can save the file and replace the original .fam file
+
+```{r save-sex-fam-file}
+# Save the modified dataframe to a text file
+fwrite(fam_data2, file = here("output", "fst", "new_aut.fam"), sep = "\t", quote = FALSE, col.names = FALSE)
+```
+
+Check it
+```{bash}
+head output/fst/new_aut.fam
+```
+
+
+Now we can convert it to raw format and repeat the fst estimates
+
+
+We can convert to raw format
+
+```{bash}
+# For consistance we need to use the same thresholds we used to create the file with the 3 populations. So, we set genotype missingness to 20% and MAF to 5%
+plink \
+--keep-allele-order \
+--bfile output/fst/new_aut \
+--recodeA \
+--geno 0.2 \
+--maf 0.05 \
+--out output/fst/sex \
+--silent;
+grep 'samples\|variants\|remaining' output/fst/sex.log
+```
+
+Clean env and memory
+```{r clean-env-memory-sex}
+# Remove all objects from the environment
+rm(list = ls())
+
+# Run the garbage collector to free up memory
+gc()
+```
+
+
+```{r read-plink-sex-pairwise, message=FALSE, results='hide'}
+sex_pairwise <-
+  read.PLINK(
+    here(
+      "output", "fst", "sex.raw"
+    ),
+    quiet = FALSE,
+    chunkSize = 1000,
+    parallel = require("parallel"),
+    n.cores = 4
+  )
+
+summary(sex_pairwise)
+```
+
+Now lets convert the genlight object to Stampp format, and estimate pairwise Fst values
+
+The command below would also work, but you can simplify it and put only the numbers:
+pop_pairwise2 <- stamppFst(pop_pairwise, nboots=10,  percent=95 + nclusters=8)
+
+This chunk will take a couple minutes to run.
+```{r run-stampp-fst-sex}
+# Convert
+sex_pairwise2 <- stamppConvert(sex_pairwise, type="genlight")
+
+# 10 bootstraps, 95% CI, 8 threads
+sex_pairwise2 <- stamppFst(sex_pairwise2, 10, 95, 8)
+```
+
+Save the result
+```{r save-sex-pairwise-fst-rds}
+saveRDS(
+  sex_pairwise2, here(
+    "output", "fst", "sex_pairwise2.rds"
+  )
+)
+```
+
+Load the result
+```{r load-sex-pairwise-fst-rds}
+sex_pairwise2 <- readRDS(
+  here(
+    "output", "fst", "sex_pairwise2.rds"
+  )
+)
+```
+
+
+Now lets look at the object
+
+```{r summary-sex-pairwise-fst}
+summary(sex_pairwise2)
+```
+
+If you want you can save the fst values as csv.
+```{r save-sex-fst-csv}
+# Convert the 'Fsts' and 'Pvalues' matrices to dataframes
+fsts_df <- as.data.frame(sex_pairwise2$Fsts)
+pvalues_df <- as.data.frame(sex_pairwise2$Pvalues)
+
+head(fsts_df)
+
+# Save it
+write.csv(fsts_df, file = here("output", "fst", "sex_pairwise2_df.csv"))
+```
+Check the p-values
+```{r check-sex-pvalues}
+head(pvalues_df)
+```
+All the p-values are zero, indicating statistical significance
+
+
+We will convert the data into a matrix.
+```{r build-sex-fst-matrix}
+# First we can rename the columns of the fst values object
+# Use gsub to remove 'Fsts.' from the column names
+names(fsts_df) <- gsub("Fsts\\.", "", names(fsts_df))
+
+# Create matrix
+aa <- as.matrix(fsts_df)
+aa[upper.tri(aa)] <- t(aa)[upper.tri(t(aa))]
+head(aa)
+```
+
+Lets check if the matrix is symmetric.
+```{r check-sex-fst-matrix-symmetric}
+isSymmetric(aa)
+```
+
+
+We will also add NA on the upper left side of the matrix.
+```{r mask-sex-fst-upper-tri}
+aa[lower.tri(aa)] <- NA
+```
+
+
+Now we have to convert the matrix to a data frame to plot it with ggplot.
+
+```{r melt-sex-fst-matrix}
+pairfst.long <- reshape2::melt(aa)
+summary(pairfst.long)
+```
+
+Now lets plot the data with ggplot.
+You can click in the little square on the top left of the plot to open it on a new window. It will have the right proportions.
+```{r plot-sex-fst-heatmap, fig.width=6, fig.height=6}
+pairfst.f <- ggplot(pairfst.long, aes(Var1, Var2)) +
+  geom_tile(aes(fill = value), colour = "white") +
+  scale_fill_gradient(
+    low = "white",
+    high = "#71b6ff",
+    name = "Fst",
+    na.value = "white",
+    limits = c(0, 0.5)
+  ) +
+  scale_x_discrete(position = "top") +
+  theme_bw() +
+  geom_text(aes(label = ifelse(
+    is.na(value), "", formatC(value, digits = 2, format = "f")
+  )), size = 6) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, size = 20),
+    axis.title = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.text.y = element_text(hjust = 0, size = 20)
+  )
+pairfst.f
+```
+
+The highest differentiation is between the males across population. For example, NEW males and AUT males have an Fst value of 0.17 while the females have 0.12. The differences within sex is low, 0.04 for AUT and 0.03 for NEW. The Fst estimates for females between the populations is lower than males, for females of AUT and NEW the Fst value is 0.12, while between males is 0.17. Now, between sex, for AUT males vs NEW females the fst value is 0.14, while AUT females vs NEW males is 0.15, which are quite similar.
+
+```{r save-sex-fst-heatmap-pdf}
+output_path <- here("output", "fst", "figures", "sex_estimates.pdf")
+ggsave(output_path, pairfst.f, height = 6, width = 6, dpi = 300)
+```
+
+Now we can compare the males vs females using non-overlapping sliding window. First we compare the two populations, NEW and MAN vs AUT. Then, we compare the males and females for each population we have sex information (NEW and AUT), next we can compare the males of AUT vs the males of NEW, and do the estimates for the females as well. We can use vcftools to perform the estimates for us.
+
+
+## 3. Sliding windows Fst estimates between the populations
+
+Clean env and memory
+```{r clean-env-memory-sliding-window}
+# Remove all objects from the environment
+rm(list = ls())
+
+# Run the garbage collector to free up memory
+gc()
+```
+
+
+We will compare NEW vs MAN, NEW vs AUT, MAN vs AUT, then we can plot the estimates using a facet plot and add a smooth line to see if there are genomic regions with high differenciation
+
+First we need to create a vcf with Plink. We can use the original file since we will compare all populations.
+
+Convert to vcf
+```{bash}
+plink \
+--keep-allele-order \
+--bfile output/ldna/files/file1 \
+--recode vcf \
+--out output/fst/albo \
+--silent;
+grep 'samples\|variants\|remaining' output/fst/albo.log
+```
+
+We can use bcftools to check the sample names
+
+```{bash}
+bcftools query -l output/fst/albo.vcf
+```
+
+Now we create a list of mosquitoes for each population
+
+```{bash}
+# Define the VCF file path
+VCF_FILE="output/fst/albo.vcf"
+
+# Extract the list of individuals
+INDIVIDUALS=$(bcftools query -l $VCF_FILE)
+
+# Filter and create files for each population
+echo "$INDIVIDUALS" | grep '^MAN_' > output/fst/MAN.txt
+echo "$INDIVIDUALS" | grep '^AUT_' > output/fst/AUT.txt
+echo "$INDIVIDUALS" | grep '^NEW_' > output/fst/NEW.txt
+```
+
+Check one file to see if is correct
+```{bash}
+head output/fst/MAN.txt
+```
+
+Now we can estimate Fst between the populations using vcftools. We can use overlapping windows for finer resolution
+
+MAN vs NEW
+```{bash}
+# Since we are using the SNP chip data, we can use a window of 1Mb and 100kb steps
+vcftools --vcf output/fst/albo.vcf \
+         --weir-fst-pop output/fst/MAN.txt \
+         --weir-fst-pop output/fst/NEW.txt \
+         --fst-window-size 1000000 \
+         --fst-window-step 100000 \
+         --out output/fst/man_new
+```
+
+Check the result
+```{bash}
+head output/fst/man_new.windowed.weir.fst
+```
+
+MAN vs AUT
+```{bash}
+# Since we are using the SNP chip data, we can use a window of 1Mb and 100kb steps
+vcftools --vcf output/fst/albo.vcf \
+         --weir-fst-pop output/fst/MAN.txt \
+         --weir-fst-pop output/fst/AUT.txt \
+         --fst-window-size 1000000 \
+         --fst-window-step 100000 \
+         --out output/fst/man_aut
+```
+
+NEW vs AUT
+```{bash}
+# Since we are using the SNP chip data, we can use a window of 1Mb and 100kb steps
+vcftools --vcf output/fst/albo.vcf \
+         --weir-fst-pop output/fst/NEW.txt \
+         --weir-fst-pop output/fst/AUT.txt \
+         --fst-window-size 1000000 \
+         --fst-window-step 100000 \
+         --out output/fst/new_aut
+```
+
+Now we can import the results into R
+MAN vs NEW
+```{r read-sliding-window-man-new}
+# Define the file path using here
+file_path <- here("output", "fst", "man_new.windowed.weir.fst")
+
+# Import the file using read_delim
+man_new <- read_delim(file_path,
+                       delim = "\t",    # Specify the tab delimiter
+                       col_names = TRUE,
+                      show_col_types = FALSE) # Indicates that the first row contains column names
+
+# View the first few rows of the data
+head(man_new)
+```
+MAN vs AUT
+```{r read-sliding-window-man-aut}
+# Define the file path using here
+file_path <- here("output", "fst", "man_aut.windowed.weir.fst")
+
+# Import the file using read_delim
+man_aut <- read_delim(file_path,
+                       delim = "\t",    # Specify the tab delimiter
+                       col_names = TRUE,
+                      show_col_types = FALSE) # Indicates that the first row contains column names
+
+# View the first few rows of the data
+head(man_aut)
+```
+
+NEW vs AUT
+```{r read-sliding-window-new-aut}
+# Define the file path using here
+file_path <- here("output", "fst", "new_aut.windowed.weir.fst")
+
+# Import the file using read_delim
+new_aut <- read_delim(file_path,
+                       delim = "\t",    # Specify the tab delimiter
+                       col_names = TRUE,
+                      show_col_types = FALSE) # Indicates that the first row contains column names
+
+# View the first few rows of the data
+head(new_aut)
+```
+
+Combine the data
+```{r combine-pop-sliding-window-data}
+# Add a new column 'comparison' to each tibble
+man_new$comparison <- "MAN_NEW"
+new_aut$comparison <- "NEW_AUT"
+man_aut$comparison <- "MAN_AUT"
+
+# Combine the tibbles using rbind
+combined_data <- rbind(man_new, new_aut, man_aut)
+
+# View the first few rows of the combined data
+head(combined_data)
+```
+
+Save the data
+```{r save-pop-sliding-window-rds}
+saveRDS(combined_data, file = here("output", "fst", "pop_fst.rds"))
+```
+
+
+
+
+Now we plot
+```{r plot-pop-sliding-window-fst, fig.height=7, fig.width=9}
+# Calculate the middle position
+combined_data$mid_pos <- with(combined_data, (BIN_START + BIN_END) / 2)
+
+# Reorder the levels of the comparison factor
+combined_data$comparison <- fct_relevel(combined_data$comparison, "MAN_NEW", "MAN_AUT", "NEW_AUT")
+
+# Define a set of pastel colors for three chromosomes
+pastel_colors <- c("#ebd99f", "#B3CDE3", "#CCEBC5")
+
+# Create the facet plot
+window_fst <-
+  ggplot(combined_data,
+         aes(
+           x = mid_pos,
+           y = WEIGHTED_FST,
+           color = as.factor(CHROM)
+         )) +
+  geom_point(size = 0.1) +
+  facet_grid(comparison ~ CHROM, scales = "free_x") +
+  scale_x_continuous(labels = label_number(scale = 1e-6, suffix = "Mb")) +
+  scale_color_manual(values = pastel_colors) +
+  # Smooth line for MAN_NEW in black
+  geom_smooth(
+    data = subset(combined_data, comparison == "MAN_NEW"),
+    aes(group = CHROM),
+    se = FALSE,
+    span = 0.3,
+    color = "black"
+  ) +
+  # Smooth line for MAN_AUT in red
+  geom_smooth(
+    data = subset(combined_data, comparison == "MAN_AUT"),
+    aes(group = CHROM),
+    se = FALSE,
+    span = 0.3,
+    color = "red"
+  ) +
+  # Smooth line for NEW_AUT in red
+  geom_smooth(
+    data = subset(combined_data, comparison == "NEW_AUT"),
+    aes(group = CHROM),
+    se = FALSE,
+    span = 0.3,
+    color = "red"
+  ) +
+  theme_bw() +
+  labs(x = "Position", y = "Weighted Fst", title = "") +
+  theme(
+    strip.text.x = element_text(angle = 0, hjust = .5),
+    strip.text.y = element_text(angle = 90, hjust = .5),
+    panel.spacing.x = unit(1.01, "lines"),
+    legend.position = "none"
+  )
+
+window_fst
+
+output_path <- here("output", "fst", "figures", "pairwise_estimates_windows.pdf")
+ggsave(output_path, window_fst, height = 7, width = 9, dpi = 300)
+```
+
+
+Chromosome 2 peaks seems interesting. We can find out what are the windows that have such ligh fst values
+```{r filter-chr2-high-fst-pop}
+# Lets find the windows for which the fst values are > 0.5
+chr2 <- combined_data |>
+  dplyr::filter(
+    CHROM == "2"
+  ) |>
+  dplyr::filter(
+    WEIGHTED_FST >= 0.5
+  )
+
+# View the results
+print(chr2)
+```
+
+
+
+## 4. Sliding windows Fst estimates between the sexes
+> **Note:** This section (sliding window Fst between sexes) was not used in the final version of the manuscript.
+
+Clean env and memory
+```{r clean-env-memory-sex-sliding}
+# Remove all objects from the environment
+rm(list = ls())
+
+# Run the garbage collector to free up memory
+gc()
+```
+
+We need to create a list of males and females for each population
+```{r read-sex-fam-for-vcftools}
+# Specify the path using the 'here' function
+fam_file_path <- here("output", "fst", "new_aut.fam")
+
+# Now, read the file using the path - using data.table library
+fam_data2 <- fread(fam_file_path, header = FALSE)
+
+# Rename columns for clarity
+setnames(fam_data2, c("FID", "IID", "PID", "MID", "Sex", "Phenotype"))
+
+head(fam_data2)
+```
+
+We need the files to be in this format
+```{bash}
+head output/fst/NEW.txt
+```
+
+We can subset for each sex and create a file that we will use with vcftools
+
+NEW males
+```{r save-new-males-ids}
+new_males <- fam_data2 |>
+  dplyr::filter(FID == "NEW_M")
+
+# Create ids to match what we have in the vcf
+new_males$ID <- paste0(sub("_M", "_", new_males$FID), new_males$IID)
+
+
+# Save it
+write.table(new_males$ID, here("output", "fst","new_males_IDs.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+
+head(new_males)
+```
+
+Check it
+```{bash}
+head output/fst/new_males_IDs.txt
+```
+
+Now do it for the remaining files
+
+NEW females
+```{r save-new-females-ids}
+new_females <- fam_data2 |>
+  dplyr::filter(FID == "NEW_F")
+
+# Create ids to match what we have in the vcf
+new_females$ID <- paste0(sub("_F", "_", new_females$FID), new_females$IID)
+
+
+# Save it
+write.table(new_females$ID, here("output", "fst","new_females_IDs.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+
+head(new_females)
+```
+
+AUT males
+```{r save-aut-males-ids}
+aut_males <- fam_data2 |>
+  dplyr::filter(FID == "AUT_M")
+
+# Create ids to match what we have in the vcf
+aut_males$ID <- paste0(sub("_M", "_", aut_males$FID), aut_males$IID)
+
+
+# Save it
+write.table(aut_males$ID, here("output", "fst","aut_males_IDs.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+
+head(aut_males)
+```
+
+AUT females
+```{r save-aut-females-ids}
+aut_females <- fam_data2 |>
+  dplyr::filter(FID == "AUT_F")
+
+# Create ids to match what we have in the vcf
+aut_females$ID <- paste0(sub("_F", "_", aut_females$FID), aut_females$IID)
+
+
+# Save it
+write.table(aut_females$ID, here("output", "fst","aut_females_IDs.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+
+head(aut_females)
+```
+
+Now we can estimate fst with vcftools
+
+NEW males vs NEW females
+```{bash}
+# Since we are using the SNP chip data, we can use a window of 1Mb and 100kb steps
+vcftools --vcf output/fst/albo.vcf \
+         --weir-fst-pop output/fst/new_males_IDs.txt \
+         --weir-fst-pop output/fst/new_females_IDs.txt \
+         --fst-window-size 1000000 \
+         --fst-window-step 100000 \
+         --out output/fst/new_sex
+```
+
+AUT males vs AUT females
+```{bash}
+# Since we are using the SNP chip data, we can use a window of 1Mb and 100kb steps
+vcftools --vcf output/fst/albo.vcf \
+         --weir-fst-pop output/fst/aut_males_IDs.txt \
+         --weir-fst-pop output/fst/aut_females_IDs.txt \
+         --fst-window-size 1000000 \
+         --fst-window-step 100000 \
+         --out output/fst/aut_sex
+```
+
+NEW males vs AUT males
+```{bash}
+# Since we are using the SNP chip data, we can use a window of 1Mb and 100kb steps
+vcftools --vcf output/fst/albo.vcf \
+         --weir-fst-pop output/fst/new_males_IDs.txt \
+         --weir-fst-pop output/fst/aut_males_IDs.txt \
+         --fst-window-size 1000000 \
+         --fst-window-step 100000 \
+         --out output/fst/new_aut_males
+```
+
+NEW females vs AUT females
+```{bash}
+# Since we are using the SNP chip data, we can use a window of 1Mb and 100kb steps
+vcftools --vcf output/fst/albo.vcf \
+         --weir-fst-pop output/fst/new_females_IDs.txt \
+         --weir-fst-pop output/fst/aut_females_IDs.txt \
+         --fst-window-size 1000000 \
+         --fst-window-step 100000 \
+         --out output/fst/new_aut_females
+```
+
+Now we can import the results into R
+
+NEW male vs female
+```{r read-sliding-window-new-sex}
+# Define the file path using here
+file_path <- here("output", "fst", "new_sex.windowed.weir.fst")
+
+# Import the file using read_delim
+new_sex <- read_delim(file_path,
+                       delim = "\t",    # Specify the tab delimiter
+                       col_names = TRUE,
+                      show_col_types = FALSE) # Indicates that the first row contains column names
+
+# View the first few rows of the data
+head(new_sex)
+```
+
+
+AUT male vs female
+```{r read-sliding-window-aut-sex}
+# Define the file path using here
+file_path <- here("output", "fst", "aut_sex.windowed.weir.fst")
+
+# Import the file using read_delim
+aut_sex <- read_delim(file_path,
+                       delim = "\t",    # Specify the tab delimiter
+                       col_names = TRUE,
+                      show_col_types = FALSE) # Indicates that the first row contains column names
+
+# View the first few rows of the data
+head(aut_sex)
+```
+
+NEW males vs AUT males
+```{r read-sliding-window-new-aut-males}
+# Define the file path using here
+file_path <- here("output", "fst", "new_aut_males.windowed.weir.fst")
+
+# Import the file using read_delim
+new_aut_males <- read_delim(file_path,
+                       delim = "\t",    # Specify the tab delimiter
+                       col_names = TRUE,
+                      show_col_types = FALSE) # Indicates that the first row contains column names
+
+# View the first few rows of the data
+head(new_aut_males)
+```
+
+
+NEW females vs AUT females
+```{r read-sliding-window-new-aut-females}
+# Define the file path using here
+file_path <- here("output", "fst", "new_aut_females.windowed.weir.fst")
+
+
+# Import the file using read_delim
+new_aut_females <- read_delim(file_path,
+                       delim = "\t",    # Specify the tab delimiter
+                       col_names = TRUE,
+                      show_col_types = FALSE) # Indicates that the first row contains column names
+
+# View the first few rows of the data
+head(new_aut_females)
+```
+
+Combine the data
+```{r combine-sex-sliding-window-data}
+# Add a new column 'comparison' to each tibble
+new_sex$comparison <- "NEW_sex"
+aut_sex$comparison <- "AUT_sex"
+new_aut_males$comparison <- "Males"
+new_aut_females$comparison <- "Females"
+
+# Combine the tibbles using rbind
+combined_data <- rbind(new_sex, aut_sex, new_aut_males, new_aut_females)
+
+# View the first few rows of the combined data
+head(combined_data)
+```
+
+Now we plot
+```{r plot-sex-sliding-window-fst, fig.height=7, fig.width=9}
+# Calculate the middle position
+combined_data$mid_pos <- with(combined_data, (BIN_START + BIN_END) / 2)
+
+# Reorder the levels of the comparison factor
+combined_data$comparison <- fct_relevel(combined_data$comparison, "NEW_sex", "AUT_sex", "Males", "Females")
+
+# Define a set of pastel colors for three chromosomes
+pastel_colors <- c("#ebd99f", "#B3CDE3", "#CCEBC5")
+
+# Create the facet plot
+window_fst <-
+  ggplot(combined_data,
+         aes(
+           x = mid_pos,
+           y = WEIGHTED_FST,
+           color = as.factor(CHROM)
+         )) +
+  geom_point(size = 0.1) +
+  facet_grid(comparison ~ CHROM, scales = "free_x") +
+  scale_x_continuous(labels = label_number(scale = 1e-6, suffix = "Mb")) +
+  scale_color_manual(values = pastel_colors) +
+  geom_smooth(
+    data = subset(combined_data, comparison == "NEW_sex"),
+    aes(group = CHROM),
+    se = FALSE,
+    span = 0.3,
+    color = "black"
+  ) +
+  geom_smooth(
+    data = subset(combined_data, comparison == "AUT_sex"),
+    aes(group = CHROM),
+    se = FALSE,
+    span = 0.3,
+    color = "red"
+  ) +
+  geom_smooth(
+    data = subset(combined_data, comparison == "Males"),
+    aes(group = CHROM),
+    se = FALSE,
+    span = 0.3,
+    color = "orange"
+  ) +
+  geom_smooth(
+    data = subset(combined_data, comparison == "Females"),
+    aes(group = CHROM),
+    se = FALSE,
+    span = 0.3,
+    color = "orange"
+  ) +
+  theme_bw() +
+  labs(x = "Position", y = "Weighted Fst", title = "") +
+  theme(
+    strip.text.x = element_text(angle = 0, hjust = .5),
+    strip.text.y = element_text(angle = 90, hjust = .5),
+    panel.spacing.x = unit(1.01, "lines"),
+    legend.position = "none"
+  )
+
+window_fst
+
+output_path <- here("output", "fst", "figures", "sex_pairwise_estimates_windows.pdf")
+ggsave(output_path, window_fst, height = 7, width = 9, dpi = 300)
+```
+## 5. Check windows of interest
+
+Chromosome 2 peaks seems interesting. We can find out what are the windows that have such ligh fst values
+```{r filter-chr2-high-fst-sex}
+# Lets find the windows for which the fst values are > 0.5
+chr2 <- combined_data |>
+  dplyr::filter(
+    CHROM == "2"
+  ) |>
+  dplyr::filter(
+    WEIGHTED_FST >= 0.5
+  )
+
+# View the results
+print(chr2)
+```
+
+Find the overlapping windows between males and females
+```{r find-overlapping-high-fst-windows}
+# Find rows with the same BIN_START but different comparison values
+overlapping_starts <- chr2 %>%
+  group_by(BIN_START) %>%
+  filter(n() > 1 & n_distinct(comparison) > 1) %>%
+  ungroup()
+
+# View the results
+print(overlapping_starts)
+```
+We have 3 windows. Starts on 410800001 and end on 412100000
+
+```{r calc-window-size-kb}
+# Window size in kb - each window is 100kb
+(412100000 - 410800001) / 1000
+```
+
+
+Now we can import the bin file that has the chromosomal scale and filter out by position
+
+```{r import-bim-snp-positions}
+# Import the function
+source(
+  here(
+    "notebooks", "helpers", "import_bim.R")
+)
+
+# Import the data
+snps <- import_bim(here("output", "quality_control", "file7.bim"))
+
+# Check it
+head(snps)
+```
+
+Now we can select the window and get the SNP ids
+```{r filter-snps-in-high-fst-window}
+# Filter the data for Scaffold 2 and Position range
+window_snps <- snps %>%
+  filter(Scaffold == "2", Position >= 410800001, Position <= 412100000)
+
+# View the results
+print(window_snps) # 46 SNPs
+```
+
+
+Now we can filter out it from our gene data
+
+Import the data
+```{r import-snps-genes-chr}
+snps_genes_chr <- readRDS(here("output", "ldna", "snps_genes_chr.rds"))
+head(snps_genes_chr)
+```
+
+The expression data
+```{r import-gene-expression-data}
+gene_expression <- read_delim(here("data", "files","MANvsAUTO_sig_mRNAs.csv"), delim = ",", col_names = TRUE, show_col_types = FALSE) |>
+  dplyr::select(
+    gene,log2FoldChange
+  ) |>
+  dplyr::rename(
+    Gene_ID = gene
+  )
+head(gene_expression)
+```
+
+First we can find how many genes we have for this window
+
+```{r filter-genes-in-high-fst-window}
+fst_cluster_chr2 <- snps_genes_chr[snps_genes_chr$SNP %in% window_snps$SNP, ]
+
+# How many genes in the scaffolds
+length(unique(fst_cluster_chr2$Gene_ID))
+```
+
+```{r count-snps-in-high-fst-window}
+# How many SNPs
+length(unique(fst_cluster_chr2$SNP))
+```
+Check it
+```{r view-fst-cluster-chr2}
+fst_cluster_chr2
+```
+
+
+Is this gene also DE?
+```{r check-fst-genes-de}
+fst_cluster_chr2_de <- fst_cluster_chr2[fst_cluster_chr2$Gene_ID %in% gene_expression$Gene_ID, ]
+# no it is not DE expressed
+```
+
+Now we can check if any SNP from the LD cluster 14 is on this Fst peak. Cluster ID `3215_0.78` from LDna v2.15 corresponds to `3139_0.78` from the original v.63 analysis — same SNPs, same LD threshold (see File S4e for details).
+
+```{r load-aut-chr2-ld-clusters}
+aut_ch2 <- readRDS(here("output", "ldna", "pop", "chr2", "AUT_clusters_snps.rds"))
+str(aut_ch2$`3215_0.78`)
+```
+
+```{r check-ld-cluster-fst-overlap}
+fst_ld_cluster <- fst_cluster_chr2[fst_cluster_chr2$SNP %in% aut_ch2$`3215_0.78`, ]
+# none of them
+```
+
+We can increase the window, for example check 100kb flanking windows
+```{r filter-scaffold-242-genes}
+# Filter the data for Scaffold 2 and Position range
+scaffold_242 <- snps_genes_chr %>%
+  filter(Scaffold == "2.42")
+
+# View the results
+length(unique(scaffold_242$Gene_ID)) # 92 genes on this scaffold
+```
+
+Are any of these 92 genes DE?
+```{r check-scaffold-242-de-genes}
+fst_ld_de_genes <- scaffold_242[scaffold_242$Gene_ID %in% gene_expression$Gene_ID, ]
+head(fst_ld_de_genes)
+```

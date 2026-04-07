@@ -1,0 +1,16 @@
+{
+  "geno_initial": 0.2,
+  "mind_initial": 0.2,
+  "maf_initial": 0.01,
+  "hwe_threshold": 1e-6,
+  "geno_hwe": 0.1,
+  "ld_window_size": 5,
+  "ld_step_size": 1,
+  "ld_r2_threshold": 0.1,
+  "het_sd_threshold": 4,
+  "relatedness_threshold": 0.354,
+  "geno_final": 1.0,
+  "mind_final": 1.0,
+  "mac_final": 0,
+  "maf_final": 0.0
+}

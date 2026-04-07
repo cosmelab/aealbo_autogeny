@@ -1,0 +1,46 @@
+{
+  "_comment": "Quality Control Configuration File for GWAS Pipeline",
+  "_description": "Modify these values according to your analysis requirements",
+  
+  "geno_initial": 0.2,
+  "_geno_initial_comment": "Initial variant missingness threshold (0.2 = remove variants missing in >20% of samples)",
+  
+  "mind_initial": 0.2,
+  "_mind_initial_comment": "Initial individual missingness threshold (0.2 = remove individuals missing >20% of SNPs)",
+  
+  "maf_initial": 0.01,
+  "_maf_initial_comment": "Initial minor allele frequency threshold (0.01 = remove variants with MAF < 1%)",
+  
+  "hwe_threshold": 1e-6,
+  "_hwe_threshold_comment": "Hardy-Weinberg equilibrium p-value threshold (1e-6 = very stringent)",
+  
+  "geno_hwe": 0.1,
+  "_geno_hwe_comment": "Variant missingness threshold for HWE analysis per population (0.1 = 10%)",
+  
+  "ld_window_size": 5,
+  "_ld_window_size_comment": "LD pruning window size in kb (5 = 5kb windows)",
+  
+  "ld_step_size": 1,
+  "_ld_step_size_comment": "LD pruning step size in kb (1 = move 1kb at a time)",
+  
+  "ld_r2_threshold": 0.1,
+  "_ld_r2_threshold_comment": "LD pruning r² threshold (0.1 = remove SNPs with r² > 0.1)",
+  
+  "het_sd_threshold": 4,
+  "_het_sd_threshold_comment": "Heterozygosity standard deviation threshold (4 = remove individuals >4 SD from mean)",
+  
+  "relatedness_threshold": 0.354,
+  "_relatedness_threshold_comment": "King relatedness threshold (0.354 = duplicates/MZ twins, 0.177 = 1st degree relatives)",
+  
+  "geno_final": 0.1,
+  "_geno_final_comment": "Final variant missingness threshold (0.1 = remove variants missing in >10% of samples)",
+  
+  "mind_final": 0.1,
+  "_mind_final_comment": "Final individual missingness threshold (0.1 = remove individuals missing >10% of SNPs)",
+  
+  "mac_final": 100,
+  "_mac_final_comment": "Final minor allele count threshold (100 = require at least 100 copies of minor allele)",
+  
+  "maf_final": 0.01,
+  "_maf_final_comment": "Final minor allele frequency threshold (0.01 = remove variants with MAF < 1%)"
+} 

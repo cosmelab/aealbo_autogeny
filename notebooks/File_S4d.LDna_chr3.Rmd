@@ -1,0 +1,945 @@
+---
+title: "Autogenous - LDna chromosome 3"
+author: "Luciano V Cosme"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: breezedark
+    css:
+      - "styles.css"
+    toc: yes
+    toc_float: no
+    toc_depth: 5
+editor_options:
+  markdown:
+    wrap: 120
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval                        = TRUE,
+  echo                        = TRUE,
+  cache                       = FALSE,
+  class.output                = "bg-success"
+)
+knitr::opts_knit$set(
+  root.dir = here::here()
+)
+```
+
+> **Population label key:** The code labels used in the analysis below correspond to the following manuscript labels: AUT = AUTO, MAN = NON-AUTO, NEW = NON-AUTO-FIELD.
+
+```{r libraries, message=FALSE, warning=FALSE, results='hide'}
+# Load tidyverse FIRST to avoid rlang version conflict
+library(tidyverse)
+library(here)
+library(scales)
+library(ggrepel)
+
+# Then add LDna v.2.15 library path and load
+.libPaths(c("/workspace/lib/ldna_v215", .libPaths()))
+library(LDna)
+library(reshape2)
+library(writexl)
+```
+
+
+## 5. LDna chromosome 3
+
+Because MAN has only 10 mosquitoes we will not estimate LD for it
+
+### 5.1 NEW (chromosome 3)
+Clean env and memory
+```{r cleanup-memory-new}
+# Remove all objects from the environment
+rm(list = ls())
+
+# Run the garbage collector to free up memory
+gc()
+```
+
+Import the data (make sure you have enough memory)
+```{r load-new-ld-matrix, eval=TRUE}
+ld1 <-
+  read.delim(
+    here("output", "ldna", "pop", "chr3", "NEW.chr3.txt"),
+    sep = "\t",
+    header = T,
+    row.names = 1,
+    stringsAsFactors = F,
+    check.names = FALSE
+  )
+```
+
+Check the LD matrix we built using bash
+```{r check-new-ld-matrix, eval=TRUE}
+head(ld1)
+```
+
+The row and column names are correct. Now we can convert the data frame to matrix
+
+```{r convert-new-to-matrix, eval=TRUE}
+# Create the matrix for ldna
+ld2<- as.matrix(sapply(ld1, as.numeric))
+
+# Get names
+names<- rownames(ld1)
+#names<-gsub("-", ".", names)
+
+# Add names
+row.names(ld2)<-names
+
+# Clean non-numeric values
+ld2[is.nan(ld2)] <- NA
+ld2[is.infinite(ld2)] <- NA
+
+# Remove diagonal values = 1
+diag(ld2)=NA
+
+# Make sure it is only the lower triangle matrix
+ld2[!lower.tri(ld2)] <- NA
+```
+
+Create a LDna object
+```{r run-new-ldna-raw, eval=TRUE}
+# create the LDna object (change the number of cores as needed)
+diag(ld2) <- NA
+ld2[!lower.tri(ld2)] <- NA
+ldna <- LDnaRaw(ld2, mc.cores=2, method = "single")
+```
+
+Save ldna
+```{r save-new-ldna, eval=TRUE}
+saveRDS(ldna, file = here("output", "ldna", "pop", "chr3", "NEW.rds"))
+saveRDS(ld2, file = here("output", "ldna", "pop", "chr3", "NEW_ld2.rds"))
+```
+
+```{r load-new-ldna-results}
+ldna <- readRDS(here("output", "ldna", "pop", "chr3", "NEW.rds"))
+ld2 <- readRDS(here("output", "ldna", "pop", "chr3", "NEW_ld2.rds"))
+```
+
+
+Check the object
+```{r check-new-ldna-str}
+str(ldna)
+```
+
+Extract clusters using min.edges=100
+```{r extract-new-branches}
+pdf(file = here("output", "ldna", "pop", "chr3", "NEW_extractBranches.pdf"), width = 20, height = 12)
+op <- par(mfcol=c(1,4))
+
+clusters <- extractBranches(ldna, min.edges=100, plot.tree=TRUE, cores=1)
+summary <- summaryLDna(ldna, clusters, ld2)
+write.table(summary, file = here("output", "ldna", "pop", "chr3", "summary_NEW.txt"), row.names=FALSE, sep="\t", quote=FALSE)
+
+par(op)
+while (!is.null(dev.list())) dev.off()
+```
+
+Get cluster information
+```{r get-new-cluster-info}
+# to get the list of names of the clusters
+# Find the length of the longest vector
+max_length <- max(sapply(clusters, length))
+
+# Function to pad vectors with NAs to make them the same length
+pad_vector_to_max_length <- function(vec, max_length) {
+  c(vec, rep(NA, max_length - length(vec)))
+}
+
+# Apply the padding function to each vector in the list and combine into a data frame
+do1 <- as.data.frame(do.call(cbind, lapply(clusters, pad_vector_to_max_length, max_length)))
+
+# to get list of snps for each cluster
+do <- do.call(cbind, unname(lapply(clusters, `length<-`, max(lengths(clusters)))))
+colnames(do) <- colnames(do1)
+```
+
+Save it
+```{r save-new-clusters-df}
+max_length <- max(sapply(clusters, length))
+# Initialize an empty list
+cluster_df_list <- list()
+
+# Loop through each cluster and pad with NAs
+for (cluster_name in names(clusters)) {
+  cluster_length <- length(clusters[[cluster_name]])
+  padded_cluster <- c(clusters[[cluster_name]], rep(NA, max_length - cluster_length))
+  cluster_df_list[[cluster_name]] <- padded_cluster
+}
+
+# Combine the lists into a data frame
+df <- data.frame(cluster_df_list)
+# Remove 'X' from column names
+names(df) <- make.names(names(df), unique = FALSE)
+names(df) <- sub("X", "", names(df), fixed = TRUE)
+
+# Save it
+saveRDS(df, file = here("output", "ldna", "pop", "chr3", "NEW_clusters_snps.rds"))
+head(df)
+```
+We can save it in a different format as well
+```{r save-new-clusters-long-format}
+# Assuming your data frame is named df
+long_df <- gather(df, Cluster, SNP, everything())
+
+# View the first few rows of the transformed data
+head(long_df)
+
+# Save it
+saveRDS(long_df, file = here("output", "ldna", "pop", "chr3", "NEW_clusters_snps1.rds"))
+```
+
+
+Make long format
+```{r melt-new-clusters}
+new_chr3 <- melt(do, na.rm = T, value.name = "value")
+head(new_chr3)
+```
+
+
+Update names
+```{r update-new-cluster-colnames}
+colnames(new_chr3)<- c("v1", "cluster", "SNP")
+head(new_chr3)
+```
+
+
+
+Import the bim file to get the SNP positions
+```{r import-new-bim-positions}
+# Import the function
+source(
+  here(
+    "notebooks", "helpers", "import_bim.R")
+)
+
+# Import the data
+new_snps_chr <- import_bim(here("output", "ldna", "pop", "NEW.bim")) |>
+  dplyr::select(
+    SNP, Scaffold, Position
+  ) |>
+  dplyr::rename(
+    Chromosome = Scaffold
+  )
+
+# Check it
+head(new_snps_chr)
+```
+
+Merge the cluster data and the SNP data
+```{r merge-new-clusters-snps}
+# merge dataframes
+merged<- merge(new_chr3, new_snps_chr, by="SNP", all.x=TRUE)
+merged<-na.omit(merged)
+head(merged)
+```
+
+Select the columns we need
+```{r select-new-cluster-columns}
+# subset
+merged <- subset(merged, select = c(cluster, SNP, Position))
+head(merged)
+```
+
+Sort by distance
+```{r sort-new-by-position}
+merged<- merged[order(merged$Position),,drop=FALSE]
+head(merged)
+```
+
+
+```{r subset-new-sushi}
+# for parsing later
+sushi1<- subset(merged, select = c(cluster, Position))
+head(sushi1)
+```
+
+Save the data
+```{r save-new-cluster-data, warning=FALSE}
+# Create directory
+new_directory_path <- here("output", "ldna", "pop", "chr3", "clusters")
+dir.create(new_directory_path, recursive = TRUE)
+
+# save file
+write.table(merged, file = here("output", "ldna", "pop", "chr3", "SNPs_clusters_NEW_chr3.txt"), row.names = F, sep = "\t", quote = F)
+write.table(sushi1, file = here("output", "ldna", "pop", "chr3", "clusters", "sushi_NEW_chr3.txt"), row.names = F, sep = "\t", quote = F)
+```
+
+Parse the file1 to get the start and end of the clusters as well as their size. Remember, recombination make it a mosaic, so the clusters are "mixed".
+```{bash}
+awk '
+function print_row() {
+    if ( feature != "" )
+       print feature, start, end, (end - start)
+}
+
+BEGIN {
+    FS=OFS="\t";
+    print "Cluster", "Start", "End", "Size";
+}
+NR == 1 { next } # Skip the first line
+$1 != feature {
+    print_row();
+    feature = $1;
+    start = $2;
+    end = $2;
+    next;
+}
+{
+    end = $2;
+}
+END {
+    print_row();
+}
+' output/ldna/pop/chr3/clusters/sushi_NEW_chr3.txt > output/ldna/pop/chr3/clusters/sushi2_NEW_chr3.txt;
+head output/ldna/pop/chr3/clusters/sushi2_NEW_chr3.txt
+```
+
+```{r count-new-segments}
+# Define the path
+input_path <- here("output", "ldna", "pop", "chr3", "clusters", "sushi2_NEW_chr3.txt")
+
+# Read the data into R
+clusters_data <- read_table(input_path, col_names = TRUE, col_types = NULL)
+
+# Arrange by position
+clusters_data <- clusters_data |>
+  arrange(Start)
+
+# Count segments for each cluster - if you want only the counts
+segment_counts <- clusters_data %>%
+  group_by(Cluster) %>%
+  summarize(nSegments = n(), .groups = 'drop')
+
+
+# View the result
+head(segment_counts)
+```
+
+
+Plot it
+```{r plot-new-clusters-basic, fig.height=5, fig.width=8}
+# Define the path
+input_path <-
+  here("output",
+       "ldna",
+       "pop",
+       "chr3",
+       "clusters",
+       "sushi2_NEW_chr3.txt")
+
+# Read the data into R
+clusters_data <- read.table(input_path, header = TRUE, sep = "\t") |>
+  arrange(Start)
+
+# Filter out rows with Size equal to 0
+clusters_data <- subset(clusters_data, Size > 100000) # show only bigger than 100kb
+
+
+# Calculate the maximum size for scaling
+max_size <- max(clusters_data$Size)
+
+# Create Start_Mb and End_Mb within clusters_data
+clusters_data$Start_Mb <- clusters_data$Start / 1e6
+clusters_data$End_Mb <- clusters_data$End / 1e6
+
+# Create the plot
+ggplot(clusters_data, aes(xmin = Start_Mb, xmax = End_Mb, ymin = 0, ymax = Size / 1e6)) +
+  geom_rect(aes(fill = as.factor(Cluster)), color = "black", linewidth = 0.2) +
+  scale_x_continuous(labels = label_number(unit = "M"), breaks = pretty_breaks(n = 10)) +
+  scale_y_continuous(labels = label_number(unit = "M"), breaks = pretty_breaks(n = 10)) +
+  labs(x = "Chromosome 3 (Mb)", y = "Cluster Size (Mb)", fill = "Cluster ID") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "top",
+    legend.box = "horizontal"
+  ) +
+  guides(fill = guide_legend(nrow = 3, title.position = "top", title.hjust = 0.5))
+
+
+# Use ggsave to save the plot as a PDF
+ggsave(
+  filename = here("output", "ldna", "pop", "chr3", "clusters", "NEW_chr3.pdf"),
+  device = "pdf",
+  width = 8,
+  height = 5,
+  units = "in"
+)
+```
+
+
+We can annotate the number of segments in the legend.
+
+```{r plot-new-clusters-annotated, fig.height=5, fig.width=8}
+# Merge SNP counts into clusters_data while specifying suffixes
+annotated_data <- merge(clusters_data, segment_counts, by = "Cluster")
+
+# Create a new column with Cluster names and SNP counts
+annotated_data$Cluster_with_SNPs <- with(annotated_data, paste(Cluster, " (", nSegments, ")", sep=""))
+
+# Now the plot uses the new Cluster_with_SNPs for the fill legend
+ggplot(annotated_data, aes(xmin = Start_Mb, xmax = End_Mb, ymin = 0, ymax = Size / 1e6)) +
+  geom_rect(aes(fill = as.factor(Cluster_with_SNPs)), color = "black", linewidth = 0.2) +
+  scale_x_continuous(labels = scales::label_number(unit = "M"), breaks = scales::pretty_breaks(n = 10)) +
+  scale_y_continuous(labels = scales::label_number(unit = "M"), breaks = scales::pretty_breaks(n = 10)) +
+  labs(x = "Chromosome 3 (Mb)", y = "Cluster Size (Mb)", fill = "Cluster ID") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "top",
+    legend.box = "horizontal"
+  ) +
+  guides(fill = guide_legend(nrow = 3, title.position = "top", title.hjust = 0.5))
+
+# Use ggsave to save the plot as a PDF
+ggsave(
+  filename = here("output", "ldna", "pop", "chr3", "clusters", "NEW_chr3b.pdf"),
+  device = "pdf",
+  width = 8,
+  height = 5,
+  units = "in"
+)
+```
+
+
+
+We can save the data to plot all chromosomes togeter using a facet plot
+```{r check-new-annotated-data}
+head(annotated_data)
+```
+
+Save plotting data, we can arrange the column order first
+```{r save-new-plot-data}
+plot_data <- annotated_data |>
+  dplyr::select(
+    Cluster, nSegments, Start, End, Size, Start_Mb, End_Mb
+  )
+
+# Create a new column with Chromosome
+plot_data <- data.frame(Chromosome = rep(1, nrow(plot_data)), plot_data)
+
+# Split the 'Cluster' column at "_", and create the 'r2' column with the second part
+plot_data$r2 <- sapply(strsplit(as.character(plot_data$Cluster), "_"), `[`, 2)
+
+# Move the 'r2' column to be the second column, right after 'Chromosome'
+plot_data <- plot_data[, c(1:2, ncol(plot_data), 3:(ncol(plot_data)-1))]
+
+
+# Arrange
+plot_data <- plot_data |>
+  dplyr::arrange(Start)
+
+# Check it
+head(plot_data)
+
+# Save it
+saveRDS(plot_data, file = here("output", "ldna", "pop", "chr3", "NEW_plot.rds"))
+```
+
+We can also import the summary file to create a object with SNP counts per segment
+```{r save-new-cluster-seg-snp}
+# Define the path
+input_path <-
+  here("output",
+       "ldna",
+       "pop",
+       "chr3",
+       "summary_NEW.txt")
+
+# Read the data into R
+clusters_snps <- read.table(input_path, header = TRUE, sep = "\t")
+
+# We subset and rename the column 1
+clusters_snps <- clusters_snps |>
+  dplyr::select(
+    Name, nLoci
+  ) |>
+  dplyr::rename(
+    Cluster = Name,
+    nSNPs = nLoci
+  )
+
+# Merge
+cluster_seg_snp <- inner_join(segment_counts, clusters_snps, by = "Cluster")
+cluster_seg_snp <- inner_join(clusters_data, cluster_seg_snp, by = "Cluster")
+
+# Split the 'Cluster' column at "_", and create the 'r2' column with the second part
+cluster_seg_snp$r2 <- sapply(strsplit(as.character(cluster_seg_snp$Cluster), "_"), `[`, 2)
+
+# Add chromosome number and population name
+cluster_seg_snp <- data.frame(Chromosome = rep(3, nrow(cluster_seg_snp)), cluster_seg_snp)
+cluster_seg_snp <- data.frame(Population = rep("NEW", nrow(cluster_seg_snp)), cluster_seg_snp)
+
+
+# Reorder the columns
+cluster_seg_snp <- cluster_seg_snp |>
+  dplyr::select(
+    Chromosome, Cluster, r2, Start, End, nSegments, nSNPs
+  ) |>
+  dplyr::arrange(
+    Chromosome, Start
+  )
+
+head(cluster_seg_snp)
+
+
+# Save the data for plotting later
+saveRDS(cluster_seg_snp, file = here("output", "ldna", "pop", "chr3", "NEW_plot2.rds"))
+```
+
+
+### 5.2 AUT (chromosome 3)
+Clean env and memory
+```{r cleanup-memory-aut}
+# Remove all objects from the environment
+rm(list = ls())
+
+# Run the garbage collector to free up memory
+gc()
+```
+
+Import the data
+```{r load-aut-ld-matrix, eval=TRUE}
+ld1 <-
+  read.delim(
+    here("output", "ldna", "pop", "chr3", "AUT.chr3.txt"),
+    sep = "\t",
+    header = T,
+    row.names = 1,
+    stringsAsFactors = F,
+    check.names = FALSE
+  )
+```
+
+Check the LD matrix we built using bash
+```{r check-aut-ld-matrix, eval=TRUE}
+head(ld1)
+```
+
+The row and column names are correct. Now we can convert the data frame to matrix
+
+```{r convert-aut-to-matrix, eval=TRUE}
+# Create the matrix for ldna
+ld2<- as.matrix(sapply(ld1, as.numeric))
+
+# Get names
+names<- rownames(ld1)
+#names<-gsub("-", ".", names)
+
+# Add names
+row.names(ld2)<-names
+
+# Clean non-numeric values
+ld2[is.nan(ld2)] <- NA
+ld2[is.infinite(ld2)] <- NA
+
+# Remove diagonal values = 1
+diag(ld2)=NA
+
+# Make sure it is only the lower triangle matrix
+ld2[!lower.tri(ld2)] <- NA
+```
+
+Create a LDna object
+```{r run-aut-ldna-raw, eval=TRUE}
+# create the LDna object (reduce cores to limit memory during full render)
+diag(ld2) <- NA
+ld2[!lower.tri(ld2)] <- NA
+gc()
+ldna <- LDnaRaw(ld2, mc.cores=2, method = "single")
+```
+
+Check the object
+```{r check-aut-ldna-str, eval=TRUE}
+str(ldna)
+```
+
+Save it
+```{r save-aut-ldna, eval=TRUE}
+saveRDS(ldna, file = here("output", "ldna", "pop", "chr3", "AUT.rds"))
+saveRDS(ld2, file = here("output", "ldna", "pop", "chr3", "AUT_ld2.rds"))
+```
+
+Load the data
+```{r load-aut-ldna-results}
+ldna <- readRDS(here("output", "ldna", "pop", "chr3", "AUT.rds"))
+ld2 <- readRDS(here("output", "ldna", "pop", "chr3", "AUT_ld2.rds"))
+```
+
+Extract clusters using min.edges=100
+```{r extract-aut-branches}
+pdf(file = here("output", "ldna", "pop", "chr3", "AUT_extractBranches.pdf"), width = 20, height = 12)
+op <- par(mfcol=c(1,4))
+
+clusters <- extractBranches(ldna, min.edges=100, plot.tree=TRUE, cores=1)
+summary <- summaryLDna(ldna, clusters, ld2)
+write.table(summary, file = here("output", "ldna", "pop", "chr3", "summary_AUT.txt"), row.names=FALSE, sep="\t", quote=FALSE)
+
+par(op)
+while (!is.null(dev.list())) dev.off()
+```
+
+Get cluster information
+```{r get-aut-cluster-info}
+# to get the list of names of the clusters
+# Find the length of the longest vector
+max_length <- max(sapply(clusters, length))
+
+# Function to pad vectors with NAs to make them the same length
+pad_vector_to_max_length <- function(vec, max_length) {
+  c(vec, rep(NA, max_length - length(vec)))
+}
+
+# Apply the padding function to each vector in the list and combine into a data frame
+do1 <- as.data.frame(do.call(cbind, lapply(clusters, pad_vector_to_max_length, max_length)))
+
+# to get list of snps for each cluster
+do <- do.call(cbind, unname(lapply(clusters, `length<-`, max(lengths(clusters)))))
+colnames(do) <- colnames(do1)
+```
+
+Save it
+```{r save-aut-clusters-df}
+max_length <- max(sapply(clusters, length))
+# Initialize an empty list
+cluster_df_list <- list()
+
+# Loop through each cluster and pad with NAs
+for (cluster_name in names(clusters)) {
+  cluster_length <- length(clusters[[cluster_name]])
+  padded_cluster <- c(clusters[[cluster_name]], rep(NA, max_length - cluster_length))
+  cluster_df_list[[cluster_name]] <- padded_cluster
+}
+
+# Combine the lists into a data frame
+df <- data.frame(cluster_df_list)
+# Remove 'X' from column names
+names(df) <- make.names(names(df), unique = FALSE)
+names(df) <- sub("X", "", names(df), fixed = TRUE)
+
+# Save it
+saveRDS(df, file = here("output", "ldna", "pop", "chr3", "AUT_clusters_snps.rds"))
+head(df)
+```
+We can save it in a different format as well
+```{r save-aut-clusters-long-format}
+# Assuming your data frame is named df
+long_df <- gather(df, Cluster, SNP, everything())
+
+# View the first few rows of the transformed data
+head(long_df)
+
+# Save it
+saveRDS(long_df, file = here("output", "ldna", "pop", "chr3", "AUT_clusters_snps1.rds"))
+```
+
+Make long format
+```{r melt-aut-clusters}
+aut_chr2 <- melt(do, na.rm = T, value.name = "value")
+head(aut_chr2)
+```
+
+
+Update names
+```{r update-aut-cluster-colnames}
+colnames(aut_chr2)<- c("v1", "cluster", "SNP")
+head(aut_chr2)
+```
+
+
+Import the bim file to get the SNP positions
+```{r import-aut-bim-positions}
+# Import the function
+source(
+  here(
+    "notebooks", "helpers", "import_bim.R")
+)
+
+# Import the data
+aut_snps_chr <- import_bim(here("output", "ldna", "pop", "AUT.bim")) |>
+  dplyr::select(
+    SNP, Scaffold, Position
+  ) |>
+  dplyr::rename(
+    Chromosome = Scaffold
+  )
+
+# Check it
+head(aut_snps_chr)
+```
+
+Merge the cluster data and the SNP data
+```{r merge-aut-clusters-snps}
+# merge dataframes
+merged<- merge(aut_chr2, aut_snps_chr, by="SNP", all.x=TRUE)
+merged<-na.omit(merged)
+head(merged)
+```
+
+Select the columns we need
+```{r select-aut-cluster-columns}
+# subset
+merged <- subset(merged, select = c(cluster, SNP, Position))
+head(merged)
+```
+
+Sort by distance
+```{r sort-aut-by-position}
+merged<- merged[order(merged$Position),,drop=FALSE]
+head(merged)
+```
+
+
+```{r subset-aut-sushi}
+# for parsing later
+sushi1<- subset(merged, select = c(cluster, Position))
+head(sushi1)
+```
+
+Save the data
+```{r save-aut-cluster-data, warning=FALSE}
+# Create directory
+new_directory_path <- here("output", "ldna", "pop", "chr3", "clusters")
+dir.create(new_directory_path, recursive = TRUE)
+
+# save file
+write.table(merged, file = here("output", "ldna", "pop", "chr3", "SNPs_clusters_AUT_chr3.txt"), row.names = F, sep = "\t", quote = F)
+write.table(sushi1, file = here("output", "ldna", "pop", "chr3", "clusters", "sushi_AUT_chr3.txt"), row.names = F, sep = "\t", quote = F)
+```
+
+Parse the file1 to get the start and end of the clusters as well as their size. Remember, recombination make it a mosaic, so the clusters are "mixed".
+```{bash}
+awk '
+function print_row() {
+    if ( feature != "" )
+       print feature, start, end, (end - start)
+}
+
+BEGIN {
+    FS=OFS="\t";
+    print "Cluster", "Start", "End", "Size";
+}
+NR == 1 { next } # Skip the first line
+$1 != feature {
+    print_row();
+    feature = $1;
+    start = $2;
+    end = $2;
+    next;
+}
+{
+    end = $2;
+}
+END {
+    print_row();
+}
+' output/ldna/pop/chr3/clusters/sushi_AUT_chr3.txt > output/ldna/pop/chr3/clusters/sushi2_AUT_chr3.txt;
+head output/ldna/pop/chr3/clusters/sushi2_AUT_chr3.txt
+```
+
+Get SNP count
+```{r count-aut-segments}
+# Define the path
+input_path <- here("output", "ldna", "pop", "chr3", "clusters", "sushi2_AUT_chr3.txt")
+
+# Read the data into R
+clusters_data <- read_table(input_path, col_names = TRUE, col_types = NULL)
+
+# Arrange by position
+clusters_data <- clusters_data |>
+  arrange(Start)
+
+# Count segments for each cluster - if you want only the counts
+segment_counts <- clusters_data %>%
+  group_by(Cluster) %>%
+  summarize(nSegments = n(), .groups = 'drop')
+
+# View the result
+head(segment_counts)
+```
+
+Plot it
+```{r plot-aut-clusters-basic, fig.height=5, fig.width=8}
+# Define the path
+input_path <-
+  here("output",
+       "ldna",
+       "pop",
+       "chr3",
+       "clusters",
+       "sushi2_AUT_chr3.txt")
+
+# Read the data into R
+clusters_data <- read.table(input_path, header = TRUE, sep = "\t") |>
+  arrange(Start)
+
+# Arrange by position
+clusters_data <- clusters_data |>
+  arrange(Start)
+
+# Filter out rows with Size equal to 0
+clusters_data <- subset(clusters_data, Size > 100000) # show only bigger than 100kb
+
+
+# Calculate the maximum size for scaling
+max_size <- max(clusters_data$Size)
+
+# Create Start_Mb and End_Mb within clusters_data
+clusters_data$Start_Mb <- clusters_data$Start / 1e6
+clusters_data$End_Mb <- clusters_data$End / 1e6
+
+# Create the plot
+ggplot(clusters_data, aes(xmin = Start_Mb, xmax = End_Mb, ymin = 0, ymax = Size / 1e6)) +
+  geom_rect(aes(fill = as.factor(Cluster)), color = "black", linewidth = 0.2) +
+  scale_x_continuous(labels = label_number(unit = "M"), breaks = pretty_breaks(n = 10)) +
+  scale_y_continuous(labels = label_number(unit = "M"), breaks = pretty_breaks(n = 10)) +
+  labs(x = "Chromosome 3 (Mb)", y = "Cluster Size (Mb)", fill = "Cluster ID") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "top",
+    legend.box = "horizontal"
+  ) +
+  guides(fill = guide_legend(ncol = 7, title.position = "top", title.hjust = 0.5))
+
+
+# Use ggsave to save the plot as a PDF
+ggsave(
+  filename = here("output", "ldna", "pop", "chr3", "clusters", "AUT_chr3.pdf"),
+  device = "pdf",
+  width = 8,
+  height = 5,
+  units = "in"
+)
+```
+
+
+We can annotate the number of segments in the legend.
+
+```{r plot-aut-clusters-annotated, fig.height=5, fig.width=10}
+# Merge SNP counts into clusters_data while specifying suffixes
+annotated_data <- merge(clusters_data, segment_counts, by = "Cluster")
+
+# Create a new column with Cluster names and SNP counts
+annotated_data$Cluster_with_SNPs <- with(annotated_data, paste(Cluster, " (", nSegments, ")", sep=""))
+
+# Now the plot uses the new Cluster_with_SNPs for the fill legend
+ggplot(annotated_data, aes(xmin = Start_Mb, xmax = End_Mb, ymin = 0, ymax = Size / 1e6)) +
+  geom_rect(aes(fill = as.factor(Cluster_with_SNPs)), color = "black", linewidth = 0.2) +
+  scale_x_continuous(labels = scales::label_number(unit = "M"), breaks = scales::pretty_breaks(n = 10)) +
+  scale_y_continuous(labels = scales::label_number(unit = "M"), breaks = scales::pretty_breaks(n = 10)) +
+  labs(x = "Chromosome 3 (Mb)", y = "Cluster Size (Mb)", fill = "Cluster ID") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "top",
+    legend.box = "horizontal"
+  ) +
+  guides(fill = guide_legend(nrow = 10, title.position = "top", title.hjust = 0.5))
+
+# Use ggsave to save the plot as a PDF
+ggsave(
+  filename = here("output", "ldna", "pop", "chr3", "clusters", "AUT_chr3b.pdf"),
+  device = "pdf",
+  width = 10,
+  height = 5,
+  units = "in"
+)
+```
+
+Save plotting data, we can arrange the column order first
+```{r save-aut-plot-data}
+plot_data <- annotated_data |>
+  dplyr::select(
+    Cluster, nSegments, Start, End, Size, Start_Mb, End_Mb
+  )
+
+# Create a new column with Chromosome
+plot_data <- data.frame(Chromosome = rep(1, nrow(plot_data)), plot_data)
+
+# Split the 'Cluster' column at "_", and create the 'r2' column with the second part
+plot_data$r2 <- sapply(strsplit(as.character(plot_data$Cluster), "_"), `[`, 2)
+
+# Move the 'r2' column to be the second column, right after 'Chromosome'
+plot_data <- plot_data[, c(1:2, ncol(plot_data), 3:(ncol(plot_data)-1))]
+
+
+# Arrange
+plot_data <- plot_data |>
+  dplyr::arrange(Start)
+
+# Check it
+head(plot_data)
+
+# Save it
+saveRDS(plot_data, file = here("output", "ldna", "pop", "chr3", "AUT_plot.rds"))
+```
+
+We can also import the summary file to create a object with SNP counts per segment
+```{r save-aut-cluster-seg-snp}
+# Define the path
+input_path <-
+  here("output",
+       "ldna",
+       "pop",
+       "chr3",
+       "summary_AUT.txt")
+
+# Read the data into R
+clusters_snps <- read.table(input_path, header = TRUE, sep = "\t")
+
+# We subset and rename the column 1
+clusters_snps <- clusters_snps |>
+  dplyr::select(
+    Name, nLoci
+  ) |>
+  dplyr::rename(
+    Cluster = Name,
+    nSNPs = nLoci
+  )
+
+# Merge
+cluster_seg_snp <- inner_join(segment_counts, clusters_snps, by = "Cluster")
+cluster_seg_snp <- inner_join(clusters_data, cluster_seg_snp, by = "Cluster")
+
+# Split the 'Cluster' column at "_", and create the 'r2' column with the second part
+cluster_seg_snp$r2 <- sapply(strsplit(as.character(cluster_seg_snp$Cluster), "_"), `[`, 2)
+
+# Add chromosome number and population name
+cluster_seg_snp <- data.frame(Chromosome = rep(3, nrow(cluster_seg_snp)), cluster_seg_snp)
+cluster_seg_snp <- data.frame(Population = rep("AUT", nrow(cluster_seg_snp)), cluster_seg_snp)
+
+
+# Reorder the columns
+cluster_seg_snp <- cluster_seg_snp |>
+  dplyr::select(
+    Chromosome, Cluster, r2, Start, End, nSegments, nSNPs
+  ) |>
+  dplyr::arrange(
+    Chromosome, Start
+  )
+
+head(cluster_seg_snp)
+
+
+# Save the data for plotting later
+saveRDS(cluster_seg_snp, file = here("output", "ldna", "pop", "chr3", "AUT_plot2.rds"))
+```
+
+

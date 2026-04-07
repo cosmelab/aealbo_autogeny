@@ -1,0 +1,677 @@
+---
+title: "Autogenous - SNP and genotype frequencies."
+author: "Luciano V Cosme"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: breezedark
+    css:
+      - "styles.css"
+    toc: yes
+    toc_float: no
+    toc_depth: 5
+editor_options:
+  markdown:
+    wrap: 120
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval                        = TRUE,
+  echo                        = TRUE,
+  cache                       = FALSE,
+  class.output                = "bg-success"
+)
+knitr::opts_knit$set(
+  root.dir = here::here()
+)
+```
+
+
+
+> **Population label key:** The code labels used in the analysis below correspond to the following manuscript labels: AUT = AUTO, MAN = NON-AUTO, NEW = NON-AUTO-FIELD.
+
+## 1. R libraries and software
+
+```{r libraries, message=FALSE, results='hide'}
+library(tidyverse)
+library(here)
+library(RColorBrewer)
+## ggtext not available in container; element_text() used instead of element_text()
+library(viridis)
+```
+
+## 2. Estimate allele frequencies with Plink
+
+```{bash}
+for fam in $(awk '{print $1}' output/quality_control/file7.fam | sort | uniq);
+do
+echo $fam | \
+plink2 \
+--extract output/snpeff/SNPs_158.txt \
+--bfile output/quality_control/file7 \
+--keep-fam /dev/stdin \
+--out output/frequencies/$fam \
+--freq \
+--silent
+done
+```
+
+
+```{bash}
+# Create a directory for the SNP files if it doesn't exist
+mkdir -p output/frequencies/snp_files
+
+# Create a list of unique SNPs
+unique_snps=$(awk 'NR>1 {print $2}' output/frequencies/*.afreq | sort | uniq)
+
+# For each unique SNP
+for snp in $unique_snps; do
+    # Create an empty temporary file
+    > output/frequencies/snp_files/${snp}_tmp.txt
+
+    # Loop through each family's frequency file
+    for file in output/frequencies/*.afreq; do
+        family=$(basename $file .afreq)  # Extract the family name from the filename
+
+        # Extract the frequency for the SNP from the current family file and append to the SNP's file
+        awk -v snp="$snp" -v family="$family" 'NR>1 && $2 == snp {print $2 "\t" family "\t" (1-$5) "\t" $5}' $file >> output/frequencies/snp_files/${snp}_tmp.txt
+
+        # If the SNP file does not exist yet, create it with a header using the appropriate alleles
+        if [[ ! -f output/frequencies/snp_files/${snp}.txt ]]; then
+            alleles=$(awk -v snp="$snp" 'NR>1 && $2 == snp {print $3 "\t" $4}' $file | head -n 1)
+            echo -e "SNP\tStratum\t$alleles" > output/frequencies/snp_files/${snp}.txt
+        fi
+    done
+
+    # Append the extracted data to the SNP file
+    cat output/frequencies/snp_files/${snp}_tmp.txt >> output/frequencies/snp_files/${snp}.txt
+    rm output/frequencies/snp_files/${snp}_tmp.txt
+
+done
+```
+
+Remove the id file
+```{bash}
+rm output/frequencies/snp_files/ID.txt
+```
+
+
+Prepare the data
+```{r}
+files <- list.files(path = here("output", "frequencies", "snp_files"), pattern = "*.txt", full.names = TRUE)
+
+all_data <- lapply(files, function(file) {
+  dat <- read.table(
+    file,
+    header = TRUE,
+    sep = "\t",
+    stringsAsFactors = FALSE,
+    colClasses = c("character")
+  )
+
+  # Storing allele names from columns 3 and 4
+  allele_names <- colnames(dat)[3:4]
+
+  # Renaming columns 3 and 4
+  colnames(dat)[3:4] <- c("Allele1_Value", "Allele2_Value")
+
+  # Add the allele names as new columns
+  dat$Allele1_Name <- allele_names[1]
+  dat$Allele2_Name <- allele_names[2]
+
+  # Add SNP column
+  dat$SNP <- gsub(".txt", "", basename(file))
+
+  return(dat)
+})
+
+# Binding all data frames
+all_data_df <- do.call(rbind, all_data)
+```
+
+
+Select the 17 SNPs outliers identified in all 3 comparisons where we had the AUT line. See the 4 way Venn diagram
+```{r}
+snps_17 <-
+  read.table(
+    here("output", "pcadapt", "4_way_venn_common_SNPs_pcadapt_outflank.txt"),
+    stringsAsFactors = FALSE
+    )
+
+# Get the 17 SNPs
+snps_aut17 <- all_data_df |>
+  filter(SNP %in% snps_17$V1)
+
+head(snps_aut17)
+```
+
+Create a plot
+
+Option 1 - color borders
+```{r, fig.height=8, fig.width=6}
+# Reshape the data while keeping the original allele names
+all_data_long4 <- snps_aut17 %>%
+  pivot_longer(
+    cols = c(Allele1_Value, Allele2_Value),
+    names_to = "Allele",
+    values_to = "Value",
+    names_pattern = "Allele(\\d)_Value"
+  ) %>%
+  mutate(
+    Allele = if_else(Allele == "1", Allele1_Name, Allele2_Name),
+    Value = as.numeric(Value)  # Convert Value to numeric
+  )
+
+# load plotting theme
+source(
+  here(
+    "notebooks", "helpers", "my_theme2.R"
+  )
+)
+
+# Define the colors for the borders corresponding to each Stratum
+stratum_border_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+# Create a named vector of colors for the axis text
+axis_text_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+
+# Define the colors for the alleles
+allele_colors <- c("A" = "#ffccd1", "T" = "#e3fcc2", "C" = "#ffec8f", "G" = "#bdbdfa")
+
+# Define the colors for the borders corresponding to each Stratum
+stratum_border_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+# Recreate the plot with custom border colors for each Stratum and specific colors for alleles
+plot <- ggplot(all_data_long4, aes(x = Stratum, y = Value, fill = Allele, group = Allele)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9),
+           aes(color = Stratum), linewidth = .5) +
+  scale_fill_manual(name = "", values = allele_colors) +
+  scale_color_manual(name = "", values = stratum_border_colors) +
+  facet_wrap(~ SNP, scales = "free_x", ncol = 4) +
+  geom_text(
+    aes(label = Allele, y = Value + 0.02, group = Allele),
+    position = position_dodge(width = 0.6),
+    vjust = -0.25,
+    size = 3,
+    check_overlap = TRUE
+  ) +
+  scale_y_continuous(limits = c(0, 1.2), breaks = seq(0, 1, by = 0.25)) +
+  labs(x = "Population", y = "Frequency") +
+  my_theme() +
+  theme(
+    strip.text.x = element_text(size = 10, face = "bold", margin = margin(t = 1, b = 1, unit = "pt")),
+    legend.position = "top",
+    strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.spacing = unit(1, "lines"),
+    axis.text.x = element_text(color = "black"),
+    axis.text.y = element_text(color = "black")
+  ) +
+  guides(
+    fill = guide_legend(order = 1),
+    color = "none"
+    # color = guide_legend(order = 2, override.aes = list(fill = NA))
+  ) +
+  scale_x_discrete(labels = function(x) ifelse(x %in% names(axis_text_colors), paste0("<span style='color:", axis_text_colors[x], ";'>", x, "</span>"), x))
+
+plot <- plot + theme(axis.text.x = element_text())
+# Output the plot
+print(plot)
+
+# # Save it
+output_path <- here("output", "frequencies", "figures", "significant_17_snps_alleles.pdf")
+ggsave(output_path, plot, height = 8, width = 6, dpi = 300)
+```
+
+
+## 3. Estimate genotype frequencies with Plink
+
+```{bash}
+for fam in $(awk '{print $1}' output/quality_control/file7.fam | sort | uniq);
+do
+echo $fam | \
+plink2 \
+--extract output/snpeff/SNPs_158.txt \
+--bfile output/quality_control/file7 \
+--keep-fam /dev/stdin \
+--out output/frequencies/$fam \
+--geno-counts \
+--silent
+done
+```
+
+
+Before run the code below, remember to delete the ID.txt in the directory otherwise it will give you a error
+
+Get genotype frequencies
+```{bash}
+# Create a directory for the SNP genotype files if it doesn't exist
+mkdir -p output/frequencies/genotype_files
+
+# Create a list of unique SNPs
+unique_snps=$(awk 'NR>1 {print $2}' output/frequencies/*.gcount | sort | uniq)
+
+# For each unique SNP
+for snp in $unique_snps; do
+    # Create an empty temporary file
+    > output/frequencies/genotype_files/${snp}_tmp.txt
+
+    # Loop through each family's genotype count file
+    for file in output/frequencies/*.gcount; do
+        family=$(basename $file .gcount)  # Extract the family name from the filename
+
+        # Extract alleles for the SNP from the current family file
+        ref_allele=$(awk -v snp="$snp" 'NR>1 && $2 == snp {print $3}' $file | head -n 1)
+        alt_allele=$(awk -v snp="$snp" 'NR>1 && $2 == snp {print $4}' $file | head -n 1)
+        genotypes="${ref_allele}${ref_allele}\t${ref_allele}${alt_allele}\t${alt_allele}${alt_allele}"
+
+        # Extract genotype frequencies for the SNP from the current family file and append to the SNP's file
+        awk -v snp="$snp" -v family="$family" 'NR>1 && $2 == snp {
+            total_count = $5 + $6 + $7
+            ref_ref_freq = $5 / total_count
+            ref_alt_freq = $6 / total_count
+            alt_alt_freq = $7 / total_count
+            print $2 "\t" family "\t" ref_ref_freq "\t" ref_alt_freq "\t" alt_alt_freq
+        }' $file >> output/frequencies/genotype_files/${snp}_tmp.txt
+
+        # If the SNP genotype file does not exist yet, create it with a header using the appropriate alleles
+        if [[ ! -f output/frequencies/genotype_files/${snp}.txt ]]; then
+            echo -e "SNP\tStratum\t$genotypes" > output/frequencies/genotype_files/${snp}.txt
+        fi
+    done
+
+    # Append the extracted data to the SNP genotype file
+    cat output/frequencies/genotype_files/${snp}_tmp.txt >> output/frequencies/genotype_files/${snp}.txt
+    rm output/frequencies/genotype_files/${snp}_tmp.txt
+done
+```
+
+Remove the id file
+```{bash}
+rm output/frequencies/genotype_files/ID.txt
+```
+
+
+Now we can prepare the data for plotting
+```{r}
+files <- list.files(path = here("output", "frequencies", "genotype_files"), pattern = "*.txt", full.names = TRUE)
+
+all_data <- lapply(files, function(file) {
+  dat <- read.table(
+    file,
+    header = TRUE,
+    sep = "\t",
+    stringsAsFactors = FALSE,
+    colClasses = c("character")
+  )
+
+  # Storing genotype names from columns 3 to 5
+  genotype_names <- colnames(dat)[3:5]
+
+  # Renaming columns 3 to 5
+  colnames(dat)[3:5] <- c("Genotype1_Value", "Genotype2_Value", "Genotype3_Value")
+
+  # Add the genotype names as new columns
+  dat$Genotype1_Name <- genotype_names[1]
+  dat$Genotype2_Name <- genotype_names[2]
+  dat$Genotype3_Name <- genotype_names[3]
+
+  # Add SNP column
+  dat$SNP <- gsub(".txt", "", basename(file))
+
+  return(dat)
+})
+
+# Binding all data frames
+all_data_df <- do.call(rbind, all_data)
+```
+
+
+Select the 17 SNPs
+
+```{r}
+snps_17 <-
+  read.table(
+    here("output", "pcadapt", "4_way_venn_common_SNPs_pcadapt_outflank.txt"),
+    stringsAsFactors = FALSE
+    )
+
+# Get the 17 SNPs
+snps_aut17 <- all_data_df |>
+  filter(SNP %in% snps_17$V1)
+
+head(snps_aut17)
+```
+
+Find all genotypes
+```{r}
+# Combine all genotype name columns into one vector and find unique values
+unique_genotypes <- unique(c(all_data_df$Genotype1_Name, all_data_df$Genotype2_Name, all_data_df$Genotype3_Name))
+
+# Print the unique genotypes
+print(unique_genotypes)
+```
+
+Setting up the colors manually
+```{r}
+# Define the colors for all the genotypes manually
+genotype_colors <- c(
+  "AA" = "#ffd0fa",
+  "AC" = "#e3fcc2",
+  "CC" = "#ffec8f",
+  "CT" = "#b8d6fa",
+  "TT" = "#d6fab8",
+  "AT" = "#fae3fc",
+  "GG" = "#faf4d6",
+  "GA" = "#f4f6fa",
+  "TA" = "#d0e0ff",
+  "TC" = "#f0d8ff",
+  "AG" = "#c8facc",
+  "TG" = "#acc8fa",
+  "GC" = "#faccb8",
+  "GT" = "#b8acc8",
+  "CA" = "#e3fcd6",
+  "CG" = "#d6e3fc"
+)
+```
+
+Set the colors using Rcolorbrew library
+```{r}
+# Generate a palette with viridis
+genotype_palette <- viridis::viridis(16)
+
+# First get the maximum from one palette
+palette1 <- brewer.pal(11, "Spectral")
+# Then get the rest from another palette, making sure to not have duplicates
+palette2 <- brewer.pal(5, "Set3")
+
+# Combine them while excluding any duplicates
+genotype_colors <- unique(c(palette1, palette2))
+
+# Ensure that there are 16 unique colors
+genotype_colors <- genotype_colors[1:16]
+```
+
+
+Plot it
+```{r, fig.height=8, fig.width=7}
+# Reshape the data to long format for plotting genotypes
+geno_long <- snps_aut17 %>%
+  mutate(
+    Genotype1_Name = as.character(Genotype1_Name),
+    Genotype2_Name = as.character(Genotype2_Name),
+    Genotype3_Name = as.character(Genotype3_Name)
+  ) %>%
+  pivot_longer(
+    cols = c(Genotype1_Value, Genotype2_Value, Genotype3_Value),
+    names_to = "Genotype_Num",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Genotype = case_when(
+      Genotype_Num == "Genotype1_Value" ~ Genotype1_Name,
+      Genotype_Num == "Genotype2_Value" ~ Genotype2_Name,
+      Genotype_Num == "Genotype3_Value" ~ Genotype3_Name
+    ),
+    Value = as.numeric(Value)  # Ensure that Value is numeric
+  )
+
+# Define the colors for the borders corresponding to each Stratum
+stratum_border_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+# load plotting theme
+source(
+  here(
+    "notebooks", "helpers", "my_theme2.R"
+  )
+)
+
+
+# Create a named vector of colors for the axis text
+axis_text_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+# Define the colors for the borders corresponding to each Stratum
+stratum_border_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+# save it for plotting
+saveRDS(geno_long, file = here("output", "ldna", "outlier_plot.rds"))
+
+# Update the plot with genotypes
+plot <- ggplot(geno_long, aes(x = Stratum, y = Value, fill = Genotype, group = Genotype)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), aes(color = Stratum), linewidth = 0.5) +
+  scale_fill_manual(name = "Genotype", values = genotype_colors) +
+  scale_color_manual(name = "", values = stratum_border_colors) +
+  scale_y_continuous(limits = c(0, 1.2), breaks = seq(0, 1, by = 0.25)) +
+  facet_wrap(~ SNP, scales = "free_x", ncol = 4) +
+  geom_text(
+    aes(label = Genotype, y = Value + 0.02, group = Genotype),
+    position = position_dodge(width = 0.9),
+    vjust = -0.25,
+    size = 2.5,
+    check_overlap = TRUE
+  ) +
+  labs(x = "Population", y = "Frequency") +
+  my_theme() +
+  theme(
+    strip.text.x = element_text(size = 10, face = "bold", margin = margin(t = 1, b = 1, unit = "pt")),
+    legend.position = "top",
+    legend.title.align = 0.5,
+    strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.spacing = unit(1, "lines"),
+    axis.text.x = element_text(color = "black"),
+    axis.text.y = element_text(color = "black")
+  ) +
+  guides(
+    fill = guide_legend(nrow = 2, byrow = TRUE, title = "Genotypes"),
+    color = "none"
+  ) +
+  scale_x_discrete(labels = function(x) ifelse(x %in% names(axis_text_colors), paste0("<span style='color:", axis_text_colors[x], ";'>", x, "</span>"), x))
+
+
+plot <- plot + theme(axis.text.x = element_text())
+
+# Output the plot
+print(plot)
+
+# # Save it
+output_path <- here("output", "frequencies", "figures", "significant_17_snps_genotypes.pdf")
+ggsave(output_path, plot, height = 8, width = 7, dpi = 300)
+```
+
+Plot the frequency of the 17 SNPs from the LD cluster 14 on chromsome 2 that were found in the selection scan
+```{r}
+# Define the path
+input_path <- here("output", "ldna", "snps_157b.txt")
+
+# Read the data into R
+snps_157b <- read_table(input_path, col_names = FALSE, col_types = NULL)
+```
+
+
+```{r}
+# Get the 4 SNPs
+snps_ld_17 <- all_data_df |>
+  filter(SNP %in% snps_157b$X2)
+
+head(snps_ld_17)
+```
+Plot it
+```{r, fig.height=10, fig.width=10}
+# Reshape the data to long format for plotting genotypes
+geno_long <- snps_ld_17 %>%
+  mutate(
+    Genotype1_Name = as.character(Genotype1_Name),
+    Genotype2_Name = as.character(Genotype2_Name),
+    Genotype3_Name = as.character(Genotype3_Name)
+  ) %>%
+  pivot_longer(
+    cols = c(Genotype1_Value, Genotype2_Value, Genotype3_Value),
+    names_to = "Genotype_Num",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Genotype = case_when(
+      Genotype_Num == "Genotype1_Value" ~ Genotype1_Name,
+      Genotype_Num == "Genotype2_Value" ~ Genotype2_Name,
+      Genotype_Num == "Genotype3_Value" ~ Genotype3_Name
+    ),
+    Value = as.numeric(Value)  # Ensure that Value is numeric
+  )
+
+# Define the colors for the borders corresponding to each Stratum
+stratum_border_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+# load plotting theme
+source(
+  here(
+    "notebooks", "helpers", "my_theme2.R"
+  )
+)
+
+
+# Create a named vector of colors for the axis text
+axis_text_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+# Define the colors for the borders corresponding to each Stratum
+stratum_border_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+
+# Update the plot with genotypes
+plot <- ggplot(geno_long, aes(x = Stratum, y = Value, fill = Genotype, group = Genotype)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), aes(color = Stratum), linewidth = 0.5) +
+  scale_fill_manual(name = "Genotype", values = genotype_colors) +
+  scale_color_manual(name = "", values = stratum_border_colors) +
+  scale_y_continuous(limits = c(0, 1.2), breaks = seq(0, 1, by = 0.25)) +
+  facet_wrap(~ SNP, scales = "free_x", ncol = 4) +
+  geom_text(
+    aes(label = Genotype, y = Value + 0.02, group = Genotype),
+    position = position_dodge(width = 0.9),
+    vjust = -0.25,
+    size = 2.5,
+    check_overlap = TRUE
+  ) +
+  labs(x = "Population", y = "Frequency") +
+  my_theme() +
+  theme(
+    strip.text.x = element_text(size = 10, face = "bold", margin = margin(t = 1, b = 1, unit = "pt")),
+    legend.position = "top",
+    legend.title.align = 0.5,
+    strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.spacing = unit(1, "lines"),
+    axis.text.x = element_text(color = "black"),
+    axis.text.y = element_text(color = "black")
+  ) +
+  guides(
+    fill = guide_legend(nrow = 2, byrow = TRUE, title = "Genotypes"),
+    color = "none"
+  ) +
+  scale_x_discrete(labels = function(x) ifelse(x %in% names(axis_text_colors), paste0("<span style='color:", axis_text_colors[x], ";'>", x, "</span>"), x))
+
+
+plot <- plot + theme(axis.text.x = element_text())
+
+# Output the plot
+print(plot)
+
+# # Save it (19 SNPs and not 17...)
+output_path <- here("output", "frequencies", "figures", "snps_ld_cluster14_19_snps.pdf")
+ggsave(output_path, plot, height = 10, width = 10, dpi = 300)
+```
+
+
+
+We can also check the frequency of the genotypes of the 4 SNPs we found in the DE genes
+
+Select the 4 SNPs
+
+```{r}
+# Get the 4 SNPs
+snps_aut4 <- all_data_df |>
+  filter(SNP %in% c("AX-581302901", "AX-581504582", "AX-583054970", "AX-583972796"))
+
+head(snps_aut4)
+```
+
+Plot it
+```{r, fig.height=5, fig.width=6}
+# Reshape the data to long format for plotting genotypes
+geno_long <- snps_aut4 %>%
+  mutate(
+    Genotype1_Name = as.character(Genotype1_Name),
+    Genotype2_Name = as.character(Genotype2_Name),
+    Genotype3_Name = as.character(Genotype3_Name)
+  ) %>%
+  pivot_longer(
+    cols = c(Genotype1_Value, Genotype2_Value, Genotype3_Value),
+    names_to = "Genotype_Num",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Genotype = case_when(
+      Genotype_Num == "Genotype1_Value" ~ Genotype1_Name,
+      Genotype_Num == "Genotype2_Value" ~ Genotype2_Name,
+      Genotype_Num == "Genotype3_Value" ~ Genotype3_Name
+    ),
+    Value = as.numeric(Value)  # Ensure that Value is numeric
+  )
+
+# Define the colors for the borders corresponding to each Stratum
+stratum_border_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+# load plotting theme
+source(
+  here(
+    "notebooks", "helpers", "my_theme2.R"
+  )
+)
+
+
+# Create a named vector of colors for the axis text
+axis_text_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+# Define the colors for the borders corresponding to each Stratum
+stratum_border_colors <- c("AUT" = "red", "MAN" = "black", "NEW" = "black")
+
+
+# Update the plot with genotypes
+plot <- ggplot(geno_long, aes(x = Stratum, y = Value, fill = Genotype, group = Genotype)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), aes(color = Stratum), linewidth = 0.5) +
+  scale_fill_manual(name = "Genotype", values = genotype_colors) +
+  scale_color_manual(name = "", values = stratum_border_colors) +
+  scale_y_continuous(limits = c(0, 1.2), breaks = seq(0, 1, by = 0.25)) +
+  facet_wrap(~ SNP, scales = "free_x", ncol = 2) +
+  geom_text(
+    aes(label = Genotype, y = Value + 0.02, group = Genotype),
+    position = position_dodge(width = 0.9),
+    vjust = -0.25,
+    size = 2.5,
+    check_overlap = TRUE
+  ) +
+  labs(x = "Population", y = "Frequency") +
+  my_theme() +
+  theme(
+    strip.text.x = element_text(size = 10, face = "bold", margin = margin(t = 1, b = 1, unit = "pt")),
+    legend.position = "top",
+    legend.title.align = 0.5,
+    strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.spacing = unit(1, "lines"),
+    axis.text.x = element_text(color = "black"),
+    axis.text.y = element_text(color = "black")
+  ) +
+  guides(
+    fill = guide_legend(nrow = 2, byrow = TRUE, title = "Genotypes"),
+    color = "none"
+  ) +
+  scale_x_discrete(labels = function(x) ifelse(x %in% names(axis_text_colors), paste0("<span style='color:", axis_text_colors[x], ";'>", x, "</span>"), x))
+
+
+plot <- plot + theme(axis.text.x = element_text())
+
+# Output the plot
+print(plot)
+
+# # Save it
+output_path <- here("output", "frequencies", "figures", "significant_4_snps_genotypes.pdf")
+ggsave(output_path, plot, height = 5, width = 6, dpi = 300)
+```

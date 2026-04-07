@@ -1,0 +1,1459 @@
+---
+title: "Autogenous - LDna combined analysis"
+author: "Luciano V Cosme"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: breezedark
+    css:
+      - "styles.css"
+    toc: yes
+    toc_float: no
+    toc_depth: 5
+editor_options:
+  markdown:
+    wrap: 120
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval                        = TRUE,
+  echo                        = TRUE,
+  cache                       = FALSE,
+  class.output                = "bg-success"
+)
+knitr::opts_knit$set(
+  root.dir = here::here()
+)
+```
+
+> **Population label key:** The code labels used in the analysis below correspond to the following manuscript labels: AUT = AUTO, MAN = NON-AUTO, NEW = NON-AUTO-FIELD.
+
+```{r libraries, message=FALSE, warning=FALSE, results='hide'}
+# Load tidyverse FIRST to avoid rlang version conflict
+library(tidyverse)
+library(here)
+library(scales)
+library(ggrepel)
+
+# Then add LDna v.2.15 library path and load
+.libPaths(c("/workspace/lib/ldna_v215", .libPaths()))
+library(LDna)
+library(reshape2)
+library(writexl)
+```
+
+
+## 6. Combine the chromosomal data
+
+Clean env and memory
+```{r clean-env-memory}
+# Remove all objects from the environment
+rm(list = ls())
+
+# Run the garbage collector to free up memory
+gc()
+```
+
+Read the plotting data for NEW and AUT
+```{r load-plot-data-new-aut}
+# NEW
+NEW1 <- readRDS(here("output", "ldna", "pop", "chr1", "NEW_plot2.rds")) |> mutate(Population = "NEW")
+NEW2 <- readRDS(here("output", "ldna", "pop", "chr2", "NEW_plot2.rds")) |> mutate(Population = "NEW")
+NEW3 <- readRDS(here("output", "ldna", "pop", "chr3", "NEW_plot2.rds")) |> mutate(Population = "NEW")
+
+# AUT
+AUT1 <- readRDS(here("output", "ldna", "pop", "chr1", "AUT_plot2.rds")) |> mutate(Population = "AUT")
+AUT2 <- readRDS(here("output", "ldna", "pop", "chr2", "AUT_plot2.rds")) |> mutate(Population = "AUT")
+AUT3 <- readRDS(here("output", "ldna", "pop", "chr3", "AUT_plot2.rds")) |> mutate(Population = "AUT")
+```
+
+Bind the objects
+
+```{r bind-all-populations}
+albo <- rbind(NEW1, NEW2, NEW3, AUT1, AUT2, AUT3)
+
+head(albo)
+```
+
+We can create a table
+```{r create-cluster-table}
+table1 <- albo |>
+  mutate(Size = End - Start) |>
+  dplyr::select(
+    Population, Chromosome, Cluster, r2, nSegments, nSNPs, Start, End, Size
+  ) |>
+  arrange(Population, Chromosome, Start)
+head(table1)
+```
+
+We can focus on LD blocks equal or bigger than 1Mb
+```{r filter-clusters-1mb}
+table1 <- table1 %>%
+  dplyr::filter(Size >= 1000000) %>%
+  dplyr::mutate(`Size (Mb)` = round(Size / 1000000, 2)) # %>%
+  # dplyr::select(Size)
+head(table1)
+```
+
+Create table
+```{r kable-cluster-table}
+knitr::kable(table1)
+```
+
+We can create a facet plot now for all chromosomes
+
+```{r plot-clusters-fixed-scale, fig.height=5, fig.width=10}
+# To plot only clusters equal or bigger than 1Mb
+albo2 <- table1 |> dplyr::filter(Size >= 1000000)
+
+# Function to format numbers as Mb
+label_mb <- function(x) {
+  sprintf("%.0fMb", x / 1e6)
+}
+
+# Plot it
+ggplot(albo2, aes(xmin = Start, xmax = End, ymin = 0, ymax = Size)) +
+  geom_rect(aes(fill = as.factor(Cluster)), color = "black", linewidth = 0.2) +
+  scale_x_continuous(labels = label_mb, breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(labels = label_mb, breaks = pretty_breaks(n = 5)) +
+  labs(x = "Position", y = "Cluster Size") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "none",
+    panel.spacing.x = unit(1, "lines")  # Adjust the unit and number to increase space as needed
+  ) +
+  facet_grid(Population ~ Chromosome, scales = "fixed", space = "fixed") +
+  guides(fill = "none")
+
+# Use ggsave to save the plot as a PDF
+# ggsave(
+#   filename = here("output", "ldna", "AUT_NEW_fixed.pdf"),
+#   device = "pdf",
+#   width = 10,
+#   height = 5,
+#   units = "in"
+# )
+```
+
+Make each plot with different scales
+```{r plot-clusters-free-scale, fig.height=5, fig.width=8}
+# Plot it
+ggplot(albo2, aes(xmin = Start, xmax = End, ymin = 0, ymax = Size)) +
+  geom_rect(aes(fill = as.factor(Cluster)), color = "black", linewidth = 0.2) +
+  scale_x_continuous(labels = label_mb, breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(labels = label_mb, breaks = pretty_breaks(n = 5)) +
+  labs(x = "Position", y = "Cluster Size") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    panel.grid.minor.x = element_blank(),
+    # strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    legend.position = "none",
+    panel.spacing.x = unit(1, "lines")
+  ) +
+  facet_wrap(~ Population + Chromosome, scales = "free_y", ncol = 3) +  # Free y scale, and each chromosome gets its own row
+  guides(fill = "none")
+
+# Use ggsave to save the plot as a PDF
+# ggsave(
+#   filename = here("output", "ldna", "AUT_NEW_free.pdf"),
+#   device = "pdf",
+#   width = 8,
+#   height = 5,
+#   units = "in"
+# )
+```
+
+We can also remove the large clusters and plot with fixed scale to look at the cluster between 1 and 10Mb
+```{r plot-clusters-1-to-10mb, fig.height=5, fig.width=8}
+# To plot only clusters equal or bigger than 1Mb but less that 10Mb
+albo3 <- albo2 |> dplyr::filter(Size >= 1000000, Size <= 10000000)
+
+
+# Plot it
+ggplot(albo3, aes(xmin = Start, xmax = End, ymin = 0, ymax = Size)) +
+  geom_rect(aes(fill = as.factor(Cluster)), color = "black", linewidth = 0.2) +
+  scale_x_continuous(labels = label_mb, breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(labels = label_mb, breaks = pretty_breaks(n = 5)) +
+  labs(x = "Position", y = "Cluster Size") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "none",
+    panel.spacing.x = unit(1, "lines")  # Adjust the unit and number to increase space as needed
+  ) +
+  facet_grid(Population ~ Chromosome, scales = "fixed", space = "fixed") +
+  guides(fill = "none")
+
+# Use ggsave to save the plot as a PDF
+# ggsave(
+#   filename = here("output", "ldna", "AUT_NEW_fixed_1_to_10Mb.pdf"),
+#   device = "pdf",
+#   width = 8,
+#   height = 5,
+#   units = "in"
+# )
+```
+
+It seems that the linkage patters are quite different from AUT to the wild population. I am not sure why we are seeing clusters at such long distance the wild population for chromosome 2 and 3
+
+We could do the analysis by sex, but we only have 13 females and 15 males in AUT. Perhaps we could use the same number of samples for each. However, the sample size will be too small still.
+
+## 7. Plot SNPs on DE genes with LD blocks
+```{r load-snps-scan-de}
+snps_scan <-
+  read.table(
+    # here("output", "pcadapt", "man_aut_common_SNPs_pcadapt_outflank.txt"),
+    here("output", "snpeff", "SNPs_79_DE.txt"),
+    stringsAsFactors = FALSE
+  ) |>
+  dplyr::rename(
+    SNP = V1
+  )
+
+head(snps_scan)
+```
+
+Import bim file
+```{r import-bim-ldna-file1}
+# Import the function
+source(
+  here(
+    "notebooks", "helpers", "import_bim.R")
+)
+
+# Import the data
+snps <- import_bim(here("output", "ldna", "files", "file1.bim"))
+
+# Check it
+head(snps)
+```
+
+Merge the objects
+```{r merge-scan-snps-bim}
+merged_snps <- inner_join(snps_scan, snps, by = "SNP") |>
+  dplyr::rename(
+    Chromosome = Scaffold
+  )
+head(merged_snps)
+```
+
+We can add them as lines in the plot
+```{r plot-snps-on-ld-blocks, fig.height=5, fig.width=8}
+# First, create a new data frame with 1Mb windows and count SNPs in each window
+merged_snps$Window <- floor(merged_snps$Position / 20e6) * 20e6 # 20mb
+snp_counts <- merged_snps %>%
+  group_by(Chromosome, Window) %>%
+  summarize(SNP_count = n(), .groups = 'drop')
+
+# Now, add this SNP information to the plot
+snp_plot <- ggplot() +
+  geom_rect(data = albo2, aes(xmin = Start, xmax = End, ymin = 0, ymax = Size, fill = as.factor(Cluster)),
+            color = "black", linewidth = 0.2) +
+  geom_vline(data = snp_counts, aes(xintercept = Window + 0.5e6), color = "pink", linetype = "dotted", linewidth = 0.5) +
+  geom_text(data = snp_counts, aes(x = Window + 0.5e6, y = 8e6, label = SNP_count), vjust = -0.5, color = "blue", size = 2) +
+  scale_x_continuous(labels = label_mb, breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(labels = label_mb, breaks = pretty_breaks(n = 5)) +
+  labs(x = "Position (Mb)", y = "Cluster Size (Mb)") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotdash"),
+    strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "none",
+    panel.spacing.x = unit(1, "lines")
+  ) +
+  facet_grid(Population ~ Chromosome, scales = "fixed", space = "fixed")
+
+# Display the plot
+print(snp_plot)
+
+#
+# # Use ggsave to save the plot as a PDF
+# ggsave(
+#   filename = here("output", "ldna", "linkage_snps_genes_de.pdf"),
+#   device = "pdf",
+#   width = 8,
+#   height = 5,
+#   units = "in"
+# )
+```
+
+Find the non-overlapping clusters
+```{r find-non-overlapping-clusters-v1}
+# Split the data into two subsets based on Population
+albo_NEW <- subset(albo2, Population == "NEW")
+albo_AUT <- subset(albo2, Population == "AUT")
+
+# Function to find non-overlapping clusters
+find_non_overlapping_clusters <- function(new_clusters, aut_clusters) {
+  non_overlapping <- vector("list", length(new_clusters$Chromosome))
+  names(non_overlapping) <- unique(new_clusters$Chromosome)
+
+  for (chr in unique(new_clusters$Chromosome)) {
+    new_chrom_clusters <- new_clusters[new_clusters$Chromosome == chr, ]
+    aut_chrom_clusters <- aut_clusters[aut_clusters$Chromosome == chr, ]
+
+    non_overlap <- vector("list", nrow(new_chrom_clusters))
+
+    for (i in 1:nrow(new_chrom_clusters)) {
+      overlaps <- any(aut_chrom_clusters$Start <= new_chrom_clusters$End[i] & aut_chrom_clusters$End >= new_chrom_clusters$Start[i])
+      if (!overlaps) {
+        non_overlap[[i]] <- new_chrom_clusters[i, ]
+      }
+    }
+
+    non_overlapping[[chr]] <- do.call(rbind, non_overlap)
+  }
+
+  do.call(rbind, non_overlapping)
+}
+
+# Find non-overlapping clusters
+non_overlapping_clusters <- find_non_overlapping_clusters(albo_NEW, albo_AUT)
+
+# View the non-overlapping clusters
+non_overlapping_clusters
+```
+Sanity check: Second way to get it
+```{r find-non-overlapping-clusters-v2}
+# Function to find non-overlapping segments
+find_non_overlapping_segments <- function(new_clusters, aut_clusters) {
+  non_overlapping <- list()
+
+  for (chr in unique(new_clusters$Chromosome)) {
+    new_chrom_segments <- new_clusters[new_clusters$Chromosome == chr, ]
+    aut_chrom_segments <- aut_clusters[aut_clusters$Chromosome == chr, ]
+
+    non_overlap <- list()
+
+    for (i in 1:nrow(new_chrom_segments)) {
+      overlaps <- FALSE
+      for (j in 1:nrow(aut_chrom_segments)) {
+        if (new_chrom_segments$Start[i] <= aut_chrom_segments$End[j] && new_chrom_segments$End[i] >= aut_chrom_segments$Start[j]) {
+          overlaps <- TRUE
+          break
+        }
+      }
+
+      if (!overlaps) {
+        non_overlap <- c(non_overlap, list(new_chrom_segments[i, ]))
+      }
+    }
+
+    non_overlapping[[chr]] <- do.call(rbind, non_overlap)
+  }
+
+  do.call(rbind, non_overlapping)
+}
+
+# Find non-overlapping segments
+non_overlapping_segments <- find_non_overlapping_segments(albo_NEW, albo_AUT)
+
+# View the non-overlapping segments
+non_overlapping_segments
+```
+```{r find-unique-clusters-per-population}
+# Function to find unique non-overlapping clusters for each population
+find_unique_clusters <- function(population1, population2) {
+  unique_clusters <- list()
+
+  for (chr in unique(population1$Chromosome)) {
+    pop1_chrom_clusters <- population1[population1$Chromosome == chr, ]
+    pop2_chrom_clusters <- population2[population2$Chromosome == chr, ]
+
+    unique_clusters_chr <- list()
+
+    for (i in 1:nrow(pop1_chrom_clusters)) {
+      overlaps <- any(
+        pop2_chrom_clusters$Start <= pop1_chrom_clusters$End[i] &
+        pop2_chrom_clusters$End >= pop1_chrom_clusters$Start[i]
+      )
+
+      if (!overlaps) {
+        unique_clusters_chr <- c(unique_clusters_chr, list(pop1_chrom_clusters[i, ]))
+      }
+    }
+
+    if (length(unique_clusters_chr) > 0) {
+      unique_clusters[[chr]] <- do.call(rbind, unique_clusters_chr)
+    }
+  }
+
+  do.call(rbind, unique_clusters)
+}
+
+# Find unique non-overlapping clusters for NEW and AUT populations
+unique_clusters_NEW <- find_unique_clusters(albo2[albo2$Population == "NEW",], albo2[albo2$Population == "AUT",])
+unique_clusters_AUT <- find_unique_clusters(albo2[albo2$Population == "AUT",], albo2[albo2$Population == "NEW",])
+
+# View the unique non-overlapping clusters for each population
+unique_clusters_NEW
+unique_clusters_AUT
+```
+
+
+Plot it
+```{r plot-unique-clusters-combined, fig.height=5, fig.width=10}
+# Combine the two data frames
+combined_clusters <- rbind(unique_clusters_NEW, unique_clusters_AUT)
+
+
+# Function to format numbers as Mb
+label_mb <- function(x) {
+  sprintf("%.0fMb", x / 1e6)
+}
+
+# Plot it
+ggplot(combined_clusters, aes(xmin = Start, xmax = End, ymin = 0, ymax = Size)) +
+  geom_rect(aes(fill = as.factor(Cluster)), color = "black", linewidth = 0.2) +
+  scale_x_continuous(labels = label_mb, breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(labels = label_mb, breaks = pretty_breaks(n = 5)) +
+  labs(x = "Position", y = "Cluster Size") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "none",
+    panel.spacing.x = unit(1, "lines")  # Adjust the unit and number to increase space as needed
+  ) +
+  facet_grid(Population ~ Chromosome, scales = "fixed", space = "fixed") +
+  guides(fill = "none")
+
+# Use ggsave to save the plot as a PDF
+# ggsave(
+#   filename = here("output", "ldna", "AUT_NEW_fixed_non_overlapping.pdf"),
+#   device = "pdf",
+#   width = 10,
+#   height = 5,
+#   units = "in"
+# )
+```
+
+```{r load-snps-on-de-genes}
+snps_DEgenes<- read_delim(here("output", "snpeff", "SNPs_on_DE_genes.txt"), delim = "\t", col_names = TRUE, show_col_types = FALSE)
+head(snps_DEgenes)
+```
+
+Check if any SNP fall within the clusters
+
+```{r intersect-de-snps-clusters}
+# Initialize an empty data frame to store the results
+results <- data.frame(Population = character(), Chromosome = integer(),
+                      Cluster = character(), r2 = numeric(),
+                      nSegments = integer(), nSNPs = integer(),
+                      Start = integer(), End = integer(), Size = integer(),
+                      SizeMb = numeric(), SNP = character(), Position_chr = integer(),
+                      stringsAsFactors = FALSE)
+
+for (i in 1:nrow(snps_DEgenes)) {
+    for (j in 1:nrow(combined_clusters)) {
+        if (snps_DEgenes$Chromosome[i] == combined_clusters$Chromosome[j] &&
+            snps_DEgenes$Position_chr[i] >= combined_clusters$Start[j] &&
+            snps_DEgenes$Position_chr[i] <= combined_clusters$End[j]) {
+
+            # Create a new row as a data frame with the same column names
+            new_row <- data.frame(Population = combined_clusters$Population[j],
+                                  Chromosome = combined_clusters$Chromosome[j],
+                                  Cluster = combined_clusters$Cluster[j],
+                                  r2 = combined_clusters$r2[j],
+                                  nSegments = combined_clusters$nSegments[j],
+                                  nSNPs = combined_clusters$nSNPs[j],
+                                  Start = combined_clusters$Start[j],
+                                  End = combined_clusters$End[j],
+                                  Size = combined_clusters$Size[j],
+                                  SizeMb = combined_clusters$Size[j],
+                                  SNP = snps_DEgenes$SNP[i],
+                                  Position_chr = snps_DEgenes$Position_chr[i],
+                                  stringsAsFactors = FALSE)
+
+            # Append the new row to the results data frame
+            results <- rbind(results, new_row)
+        }
+    }
+}
+
+
+head(results)
+```
+
+We can count how many SNPs we have per cluster per population
+```{r count-snps-per-cluster}
+snp_counts <- results %>%
+  select(Population, Chromosome, Cluster, nSNPs) %>%
+  distinct() %>%
+  rename(SNP_Count = nSNPs)
+
+
+head(snp_counts)
+```
+
+Plot the clusters for which we have SNPs on the DE genes
+```{r plot-clusters-with-de-snps, fig.height=5, fig.width=8}
+# Merge SNP counts into results
+results_with_counts <- merge(results, snp_counts, by = c("Population", "Chromosome", "Cluster"))
+
+ggplot(results_with_counts, aes(xmin = Start, xmax = End, ymin = 0, ymax = Size)) +
+  geom_rect(aes(fill = as.factor(Cluster)), color = "black", linewidth = 0.2) +
+  geom_text(aes(x = (Start + End) / 2, y = Size + 0.5, label = SNP_Count), size = 3, vjust = -0.2) + # Annotate SNP counts on top
+  scale_x_continuous(labels = label_mb, breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(labels = label_mb, breaks = pretty_breaks(n = 5)) +
+  labs(x = "Position", y = "Cluster Size") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "none",
+    panel.spacing.x = unit(1, "lines")
+  ) +
+  facet_grid(Population ~ Chromosome, scales = "fixed", space = "fixed") +
+  guides(fill = "none")
+
+
+```
+```{r assign-cluster-integer-ids}
+# 1. Generate integer IDs for each cluster in plotting order
+cluster_ids <- data.frame(
+  Cluster     = sort(unique(results$Cluster)),
+  Cluster_ID  = seq_along(unique(results$Cluster))
+)
+
+# 2. Merge IDs into your results
+results_with_ids <- merge(results, cluster_ids, by = "Cluster")
+
+# 3. Plot, labeling by your original 1,2,3,… IDs
+ggplot(results_with_ids, aes(xmin = Start, xmax = End, ymin = 0, ymax = Size)) +
+  geom_rect(aes(fill = factor(Cluster_ID)), color = "black", linewidth = 0.2) +
+  geom_text(aes(x = (Start + End) / 2,
+                y = Size + 0.5,
+                label = Cluster_ID),
+            size = 3, vjust = -0.2) +
+  scale_x_continuous(labels = label_mb, breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(labels = label_mb, breaks = pretty_breaks(n = 5)) +
+  labs(x = "Position", y = "Cluster Size") +
+  theme_minimal() +
+  theme(
+    axis.text.y        = element_text(margin = margin(t = 0, r = 5)),
+    axis.ticks.y       = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    strip.background   = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.grid.minor.x = element_blank(),
+    legend.position    = "none",
+    panel.spacing.x    = unit(1, "lines")
+  ) +
+  facet_grid(Population ~ Chromosome, scales = "fixed", space = "fixed") +
+  guides(fill = "none")
+
+```
+
+The table below maps the integer cluster IDs used in the plots to the `extractBranches` cluster names, the chromosome, the population, and the number of SNPs. Clusters referenced in the manuscript as **cluster 14** and **cluster 6** are highlighted.
+
+```{r build-cluster-id-mapping-table}
+# Cluster ID mapping table
+cluster_ids <- data.frame(
+  Cluster     = sort(unique(results_with_counts$Cluster)),
+  Cluster_ID  = seq_along(unique(results_with_counts$Cluster))
+)
+
+# Merge with population/chromosome/SNP count info
+cluster_map <- merge(cluster_ids,
+  results_with_counts %>%
+    select(Cluster, Population, Chromosome, SNP_Count) %>%
+    distinct(),
+  by = "Cluster")
+
+# Add manuscript name column
+cluster_map$Manuscript_Name <- ifelse(cluster_map$Cluster == "3215_0.78", "Cluster 14",
+                              ifelse(cluster_map$Cluster == "1971_0.64", "Cluster 6", ""))
+
+knitr::kable(cluster_map %>% arrange(Cluster_ID),
+  caption = "Cluster ID mapping: plot labels to extractBranches names. Cluster 14 (chr2 AUT, 3215_0.78) and Cluster 6 (chr1 AUT, 1971_0.64) are the two major LD clusters discussed in the manuscript.")
+```
+
+```{r plot-clusters-with-id-labels, fig.height=5, fig.width=8}
+# 1. Merge integer IDs into your SNP‐counted data
+results_with_counts <- merge(results_with_counts, cluster_ids, by = "Cluster")
+
+# 2. Build the fill label
+results_with_counts$Cluster_SNP <- with(
+  results_with_counts,
+  paste0(Cluster, " (", SNP_Count, " SNPs)")
+)
+
+# 3. Plot with fill by SNP count label and text by cluster ID
+ggplot(results_with_counts, aes(xmin = Start, xmax = End, ymin = 0, ymax = Size)) +
+  geom_rect(aes(fill = Cluster_SNP), color = "black", linewidth = 0.2) +
+  geom_text(
+    aes(x = (Start + End) / 2, y = Size + 0.5, label = Cluster_ID),
+    size = 3, vjust = -0.2
+  ) +
+  scale_fill_discrete(name = "Cluster and SNP Count") +
+  scale_x_continuous(labels = label_mb, breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(labels = label_mb, breaks = pretty_breaks(n = 5)) +
+  labs(x = "Position", y = "Cluster Size") +
+  theme_minimal() +
+  theme(
+    axis.text.y        = element_text(margin = margin(t = 0, r = 5)),
+    axis.ticks.y       = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    strip.background   = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.grid.minor.x = element_blank(),
+    legend.position    = "right",
+    panel.spacing.x    = unit(1, "lines")
+  ) +
+  facet_grid(Population ~ Chromosome, scales = "fixed", space = "fixed")
+```
+
+
+
+Save
+```{r save-results-with-counts, eval=TRUE}
+saveRDS(results_with_counts, file = here("output", "ldna", "results_with_counts.rds"))
+```
+
+Read the data
+```{r reload-results-with-counts}
+results_with_counts <- readRDS(file = here("output", "ldna", "results_with_counts.rds"))
+```
+
+
+```{r plot-clusters-sorted-legend, fig.height=5, fig.width=12}
+# Rebuild the fill label: add ID before Cluster and drop “ SNPs”
+results_with_counts$Cluster_SNP <- with(
+  results_with_counts,
+  paste0(Cluster_ID, ": ", Cluster, " (", SNP_Count, ")")
+)
+
+# 1. Reorder Cluster_SNP factor by Cluster_ID so the legend follows numeric order
+results_with_counts$Cluster_SNP <- factor(
+  results_with_counts$Cluster_SNP,
+  levels = results_with_counts %>%
+    distinct(Cluster_ID, Cluster_SNP) %>%
+    arrange(Cluster_ID) %>%
+    pull(Cluster_SNP)
+)
+
+# 2. Plot with sorted legend
+ggplot(results_with_counts, aes(xmin = Start, xmax = End, ymin = 0, ymax = Size)) +
+  geom_rect(aes(fill = Cluster_SNP), color = "black", linewidth = 0.2) +
+  geom_text(
+    aes(x = (Start + End) / 2, y = Size + 0.5, label = Cluster_ID),
+    size = 3, vjust = -0.2
+  ) +
+  scale_fill_discrete(name = "Cluster and SNP Count") +
+  scale_x_continuous(labels = label_mb, breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(labels = label_mb, breaks = pretty_breaks(n = 5)) +
+  labs(x = "Position", y = "Cluster Size") +
+  theme_minimal() +
+  theme(
+    axis.text.y        = element_text(margin = margin(t = 0, r = 5)),
+    axis.ticks.y       = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    strip.background   = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.grid.minor.x = element_blank(),
+    legend.position    = "right",
+    panel.spacing.x    = unit(1, "lines")
+  ) +
+  facet_grid(Population ~ Chromosome, scales = "fixed", space = "fixed")
+
+
+
+# Use ggsave to save the plot as a PDF
+ggsave(
+  filename = here("output", "ldna", "AUT_NEW_non_overlapping_clusters_with_SNPs_on_DE_genes.pdf"),
+  device = "pdf",
+  width = 10,
+  height = 5,
+  units = "in"
+)
+```
+
+
+Save it
+```{r save-results-xlsx}
+library(writexl)
+
+# 1. Drop Cluster_ID column(s)
+cleaned_results <- results_with_counts %>%
+  select(-starts_with("Cluster_ID")) %>%
+  mutate(
+    Start        = formatC(Start,        format = "f", digits = 0),
+    End          = formatC(End,          format = "f", digits = 0),
+    Position_chr = formatC(Position_chr, format = "f", digits = 0)
+  )
+
+
+# 2. Export cleaned results_with_counts to Excel
+write_xlsx(
+  list(Results = cleaned_results),
+  here("output/ldna/results_with_counts.xlsx")
+)
+
+```
+
+<!-- Development marker removed -->
+
+Now we can get the SNPs on the DE genes
+```{r load-snps-79-de-genes}
+snps79_DE_genes<- read_delim(here("output", "snpeff","SNPs_79_DE.txt"), delim = "\t", col_names = FALSE, show_col_types = FALSE)
+head(snps79_DE_genes)
+```
+
+Or the SNPs from the selection scan
+```{r load-snps-157-selection}
+snps_selection <- read_delim(here("output", "pcadapt","outlier_157_SNPs.txt"), delim = "\t", col_names = FALSE, show_col_types = FALSE)
+head(snps_selection)
+```
+
+
+
+Filter
+```{r filter-results-by-de-snps}
+# Create a logical vector to filter rows based on SNP IDs
+filter_vector <- results_with_counts$SNP %in% snps79_DE_genes$X1
+# filter_vector <- results_with_counts$SNP %in% snps_selection$X1  # we do not have any
+
+# Subset results_with_counts to keep only rows where SNP matches
+filtered_results <- results_with_counts[filter_vector, ]
+
+head(filtered_results)
+# length(filtered_results)
+```
+
+We have 16 SNPs
+```{r plot-filtered-results-16-snps, fig.height=5, fig.width=8}
+# Assign unique numbers to each cluster and create labels
+filtered_results <- filtered_results %>%
+  mutate(Cluster_Number = as.numeric(as.factor(Cluster))) %>%
+  arrange(Cluster_Number) %>%
+  mutate(Cluster_Label = paste(Cluster_Number, "_", Cluster, " (", SNP_Count, ")", sep=""))
+
+# Reorder the factor levels of Cluster_Label based on Cluster_Number
+filtered_results$Cluster_Label <- factor(filtered_results$Cluster_Label,
+                                            levels = unique(filtered_results$Cluster_Label[order(filtered_results$Cluster_Number)]))
+
+# Plotting
+ggplot(filtered_results, aes(xmin = Start, xmax = End, ymin = 0, ymax = Size)) +
+  geom_rect(aes(fill = Cluster_Label), color = "black", linewidth = 0.2) +
+  geom_text(aes(x = (Start + End) / 2, y = Size + 0.5, label = Cluster_Number), size = 3, vjust = -0.2) +
+  scale_fill_discrete(name = "Cluster ID") +
+  scale_x_continuous(labels = label_mb, breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(labels = label_mb, breaks = pretty_breaks(n = 5)) +
+  labs(x = "Position", y = "Cluster Size") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "right",
+    panel.spacing.x = unit(1, "lines")
+  ) +
+  facet_grid(Population ~ Chromosome, scales = "fixed", space = "fixed")
+
+
+# Use ggsave to save the plot as a PDF
+ggsave(
+  filename = here("output", "ldna", "AUT_NEW_overlapping_clusters_with_SNPs_on_DE_genes_intersect.pdf"),
+  device = "pdf",
+  width = 10,
+  height = 5,
+  units = "in"
+)
+```
+This are the clusters for which we found the SNP as outlier and the gene the SNP in on is DE
+
+
+
+Get the overlapping clusters
+```{r find-overlapping-clusters}
+# Function to find overlapping clusters
+find_overlapping_clusters <- function(population1, population2) {
+  overlapping_clusters <- list()
+
+  for (chr in unique(population1$Chromosome)) {
+    pop1_chrom_clusters <- population1[population1$Chromosome == chr, ]
+    pop2_chrom_clusters <- population2[population2$Chromosome == chr, ]
+
+    overlapping_clusters_chr <- list()
+
+    for (i in 1:nrow(pop1_chrom_clusters)) {
+      for (j in 1:nrow(pop2_chrom_clusters)) {
+        if (pop1_chrom_clusters$Start[i] <= pop2_chrom_clusters$End[j] &&
+            pop1_chrom_clusters$End[i] >= pop2_chrom_clusters$Start[j]) {
+          overlapping_clusters_chr <- c(overlapping_clusters_chr, list(pop1_chrom_clusters[i, ]))
+          break
+        }
+      }
+    }
+
+    if (length(overlapping_clusters_chr) > 0) {
+      overlapping_clusters[[chr]] <- do.call(rbind, overlapping_clusters_chr)
+    }
+  }
+
+  do.call(rbind, overlapping_clusters)
+}
+
+# Subset data for NEW and AUT populations
+albo_NEW <- subset(albo2, Population == "NEW")
+albo_AUT <- subset(albo2, Population == "AUT")
+
+# Find overlapping clusters between NEW and AUT
+overlapping_clusters <- find_overlapping_clusters(albo_NEW, albo_AUT)
+
+# View the overlapping clusters
+overlapping_clusters
+```
+
+Plot it
+```{r plot-overlapping-clusters, fig.height=5, fig.width=10}
+# Function to format numbers as Mb
+label_mb <- function(x) {
+  sprintf("%.0fMb", x / 1e6)
+}
+
+# Plot it
+ggplot(overlapping_clusters, aes(xmin = Start, xmax = End, ymin = 0, ymax = Size)) +
+  geom_rect(aes(fill = as.factor(Cluster)), color = "black", linewidth = 0.2) +
+  scale_x_continuous(labels = label_mb, breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(labels = label_mb, breaks = pretty_breaks(n = 5)) +
+  labs(x = "Position", y = "Cluster Size") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 5)),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linetype = "dotted"),
+    strip.background = element_rect(fill = "#e8e8e8", colour = NA),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "none",
+    panel.spacing.x = unit(1, "lines")  # Adjust the unit and number to increase space as needed
+  ) +
+  facet_grid(Population ~ Chromosome, scales = "fixed", space = "fixed") +
+  guides(fill = "none")
+
+# Use ggsave to save the plot as a PDF
+ggsave(
+  filename = here("output", "ldna", "AUT_NEW_fixed_overlapping.pdf"),
+  device = "pdf",
+  width = 10,
+  height = 5,
+  units = "in"
+)
+```
+
+## 8. Mapping back SNP clusters to scaffolds
+
+Clean env and memory
+```{r clean-env-section8}
+# Remove all objects from the environment
+rm(list = ls())
+
+# Run the garbage collector to free up memory
+gc()
+```
+
+I created the chromosomal scale for the linkage networks analysis, now we have to map back the SNPs from clusters of interest to the scaffold scale, then we can check the gene annotation file to find what genes are in the linkage group.
+
+Cluster 14 is on chromosome 2 and only in the AUT line. The cluster ID from `extractBranches` (LDna v2.15) is `3215_0.78`. This corresponds to cluster `3139_0.78` from the original analysis with `extractClusters` (LDna v.63). The cluster name changed because v2.15 `LDnaRaw` produces a slightly different dendrogram structure, but the SNP content is the same — all 316 SNPs from the original cluster are contained within this cluster (plus 8 additional SNPs at the cluster boundary). The LD threshold (0.78) is identical.
+```{r load-aut-chr2-clusters}
+aut_ch2 <- readRDS(here("output", "ldna", "pop", "chr2", "AUT_clusters_snps.rds"))
+str(aut_ch2$`3215_0.78`)
+```
+
+Now we can import the bim file with the scaffolds. We can use the backup file we created when we created the chromosomal scale.
+```{bash}
+head output/quality_control/file7_backup.bim
+```
+
+Import it
+```{r import-bim-file7-backup}
+# Import the function
+source(
+  here(
+    "notebooks", "helpers", "import_bim.R")
+)
+
+# Import the data
+snps <- import_bim(here("output", "quality_control", "file7_backup.bim"))
+
+# Check it
+head(snps)
+```
+
+
+Now we can filter the 566 SNPs that are in the cluster and see what scaffolds there are located
+
+```{r extract-cluster-14-snps}
+cluster_14 <- snps[snps$SNP %in% aut_ch2$`3215_0.78`, ]
+head(cluster_14) # 316 SNPs
+
+# Save it
+saveRDS(
+  cluster_14, here(
+    "output", "ldna", "cluster_14.rds"
+    )
+  )
+```
+
+Create table
+```{r kable-cluster-14}
+knitr::kable(cluster_14)
+```
+
+Cluster 6 is on chromosome 1, AUT only. The cluster ID from `extractBranches` (LDna v2.15) is `1971_0.64`, corresponding to `1942_0.64` from the original `extractClusters` (LDna v.63) analysis. Same as cluster 14, all 88 original SNPs are contained within this cluster (plus 2 additional SNPs). The LD threshold (0.64) is identical.
+```{r load-aut-chr1-clusters}
+aut_ch1 <- readRDS(here("output", "ldna", "pop", "chr1", "AUT_clusters_snps.rds"))
+str(aut_ch1$`1971_0.64`)
+```
+
+```{r extract-cluster-6-snps}
+cluster_6 <- snps[snps$SNP %in% aut_ch1$`1971_0.64`, ]
+head(cluster_6) # 316 SNPs
+
+# Save it
+saveRDS(
+  cluster_6, here(
+    "output", "ldna", "cluster_6.rds"
+    )
+  )
+```
+
+
+Create table
+```{r kable-cluster-6}
+knitr::kable(cluster_6)
+```
+
+
+```{r get-cluster-6-all-scaffold-snps}
+cluster_6_all <- snps[snps$Scaffold %in% cluster_6$Scaffold, ]
+head(cluster_6_all)
+```
+
+
+However we need the other SNPs to know if the blocks are connected or not. Now we know what scaffolds the SNPs are located and we can check it
+```{r get-cluster-14-all-scaffold-snps}
+cluster_14_all <- snps[snps$Scaffold %in% cluster_14$Scaffold, ]
+head(cluster_14_all)
+```
+
+Now we can create a new column and tag the SNPs that are linked
+```{r tag-linked-snps}
+# Creating the new column 'linked'
+cluster_14_all <- cluster_14_all %>%
+  mutate(linked = SNP %in% aut_ch2$`3215_0.78`)
+head(cluster_14_all)
+
+# Creating the new column 'linked'
+cluster_6_all <- cluster_6_all %>%
+  mutate(linked = SNP %in% aut_ch1$`1971_0.64`)
+head(cluster_6_all)
+```
+
+Lets check how many linked SNPs we have and how many aren't
+```{r count-linked-snps-cluster-14}
+count_linked <- cluster_14_all %>%
+  group_by(linked) %>%
+  summarise(count = n())
+count_linked
+```
+
+```{r count-linked-snps-cluster-6}
+count_linked <- cluster_6_all %>%
+  group_by(linked) %>%
+  summarise(count = n())
+count_linked
+```
+
+Get the 157 outliers
+```{r load-outlier-157-snps}
+snps_157 <-
+  read.table(
+    here("output", "pcadapt", "outlier_157_SNPs.txt"),
+    stringsAsFactors = FALSE
+    )
+
+# Get the 157 SNPs
+snps_157b <- cluster_14_all |>
+  filter(SNP %in% snps_157$V1)
+
+head(snps_157b)
+```
+
+
+```{r filter-157-snps-cluster-6}
+# Get the 157 SNPs
+snps_157c <- cluster_6_all |>
+  filter(SNP %in% snps_157$V1)
+
+head(snps_157c)
+```
+
+Plot it
+```{r plot-cluster-14-linked-scaffolds, fig.height=5, fig.width=8}
+# Function to format numbers as Mb
+label_mb <- function(x) {
+  sprintf("%.0fMb", x / 1e6)
+}
+
+
+# Calculate the start and end positions for each stretch of TRUE or FALSE
+rect_data <- cluster_14_all %>%
+  arrange(Scaffold, Position) %>%
+  mutate(change = linked != lag(linked, default = first(linked))) %>%
+  group_by(Scaffold) %>%
+  mutate(group_id = cumsum(change)) %>%
+  group_by(Scaffold, group_id, linked) %>%
+  summarize(start = min(Position), end = max(Position), .groups = 'drop') %>%
+  ungroup()
+
+# Plotting using geom_rect
+ggplot(rect_data, aes(xmin = start, xmax = end, ymin = as.numeric(Scaffold) - 0.1, ymax = as.numeric(Scaffold) + 0.1)) +
+  # Add a background layer for each scaffold with gray color
+  geom_rect(data = rect_data %>% group_by(Scaffold) %>%
+            summarize(start = min(start), end = max(end), .groups = 'drop'),
+            aes(xmin = start, xmax = end, ymin = as.numeric(Scaffold) - 0.1, ymax = as.numeric(Scaffold) + 0.1),
+            fill = "gray", inherit.aes = FALSE) +
+  # Add the TRUE stretches
+  geom_rect(aes(fill = linked), data = rect_data %>% filter(linked == TRUE)) +
+  scale_fill_manual(values = c("TRUE" = "green")) +
+  facet_wrap(~ Scaffold, scales = "fixed", ncol = 1) +
+  geom_vline(data = snps_157b, aes(xintercept = Position, color = SNP), linetype = "solid", color = "red") +
+  geom_text(data = snps_157b, aes(x = Position, y = as.numeric(Scaffold) + 0.2, label = SNP), inherit.aes = FALSE, angle = 90, vjust = 0, size = 2, check_overlap = TRUE) +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.spacing = unit(0.1, "lines"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 12, face = "bold", hjust = 0.5, margin = margin(t = 1, b = 5))
+  ) +
+  scale_x_continuous(labels = label_mb, breaks = scales::pretty_breaks(n = 6)) +
+  labs(x = "Position", title = "Continuous Stretches of Linked SNPs by Scaffold - Cluster 14 AUT", fill = "Linked") +
+  guides(fill = "none")
+
+# Save Venn diagram to PDF
+output_path <- here("output", "ldna", "figures", "cluster_14_aut_scaffolds.pdf")
+ggsave(output_path, height = 5, width = 8, units = "in")
+```
+
+
+
+To make sure the windows appear even if they are small
+```{r plot-cluster-14-min-window, fig.height=5, fig.width=8}
+# Set a minimum width for the windows
+min_width <- 1e4  # for example, 1 million base pairs
+
+# Adjust the rect_data calculation
+rect_data <- cluster_14_all %>%
+  arrange(Scaffold, Position) %>%
+  mutate(change = linked != lag(linked, default = first(linked))) %>%
+  group_by(Scaffold) %>%
+  mutate(group_id = cumsum(change)) %>%
+  group_by(Scaffold, group_id, linked) %>%
+  summarize(start = min(Position), end = max(Position), .groups = 'drop') %>%
+  ungroup() %>%
+  mutate(width = end - start,
+         adjusted_end = ifelse(width < min_width, start + min_width, end))
+
+# Plotting using geom_rect with adjusted ends
+ggplot(rect_data, aes(xmin = start, xmax = adjusted_end, ymin = as.numeric(Scaffold) - 0.1, ymax = as.numeric(Scaffold) + 0.1)) +
+  geom_rect(data = rect_data %>% group_by(Scaffold) %>%
+            summarize(start = min(start), end = max(adjusted_end), .groups = 'drop'),
+            aes(xmin = start, xmax = end, ymin = as.numeric(Scaffold) - 0.1, ymax = as.numeric(Scaffold) + 0.1),
+            fill = "gray", inherit.aes = FALSE) +
+  geom_rect(aes(fill = linked), data = rect_data %>% filter(linked == TRUE)) +
+  scale_fill_manual(values = c("TRUE" = "green")) +
+  facet_wrap(~ Scaffold, scales = "fixed", ncol = 1) +
+  theme_minimal() +
+  geom_vline(data = snps_157b, aes(xintercept = Position, color = SNP), linetype = "solid", color = "red") +
+  geom_text_repel(data = snps_157b, aes(x = Position, y = as.numeric(Scaffold) + 0.2, label = SNP),
+                  inherit.aes = FALSE, angle = 45, size = 2,
+                  nudge_y = 0.1,   # Adjust this value as needed
+                  direction = "y") +
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(), panel.spacing = unit(0.1, "lines"),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        strip.text = element_text(size = 12, face = "bold", hjust = 0.5)) +
+  scale_x_continuous(labels = label_mb, breaks = scales::pretty_breaks(n = 6)) +
+  labs(x = "Position", title = "Continuous Stretches of Linked SNPs by Scaffold - Cluster 14 AUT", fill = "Linked") +
+  guides(fill = "none")
+
+# Save Venn diagram to PDF
+output_path <- here("output", "ldna", "figures", "cluster_14_aut_scaffolds_with_small_windows.pdf")
+ggsave(output_path, height = 5, width = 8, units = "in")
+```
+
+Cluster 6
+```{r plot-cluster-6-linked-scaffolds, fig.height=5, fig.width=8}
+# Function to format numbers as Mb
+label_mb <- function(x) {
+  sprintf("%.0fMb", x / 1e6)
+}
+
+
+# Calculate the start and end positions for each stretch of TRUE or FALSE
+rect_data <- cluster_6_all %>%
+  arrange(Scaffold, Position) %>%
+  mutate(change = linked != lag(linked, default = first(linked))) %>%
+  group_by(Scaffold) %>%
+  mutate(group_id = cumsum(change)) %>%
+  group_by(Scaffold, group_id, linked) %>%
+  summarize(start = min(Position), end = max(Position), .groups = 'drop') %>%
+  ungroup()
+
+# Plotting using geom_rect
+ggplot(rect_data, aes(xmin = start, xmax = end, ymin = as.numeric(Scaffold) - 0.1, ymax = as.numeric(Scaffold) + 0.1)) +
+  # Add a background layer for each scaffold with gray color
+  geom_rect(data = rect_data %>% group_by(Scaffold) %>%
+            summarize(start = min(start), end = max(end), .groups = 'drop'),
+            aes(xmin = start, xmax = end, ymin = as.numeric(Scaffold) - 0.1, ymax = as.numeric(Scaffold) + 0.1),
+            fill = "gray", inherit.aes = FALSE) +
+  # Add the TRUE stretches
+  geom_rect(aes(fill = linked), data = rect_data %>% filter(linked == TRUE)) +
+  scale_fill_manual(values = c("TRUE" = "green")) +
+  facet_wrap(~ Scaffold, scales = "fixed", ncol = 1) +
+  geom_vline(data = snps_157c, aes(xintercept = Position, color = SNP), linetype = "solid", color = "red") +
+  geom_text(data = snps_157c, aes(x = Position, y = as.numeric(Scaffold) + 0.2, label = SNP), inherit.aes = FALSE, angle = 90, vjust = 0, size = 2, check_overlap = TRUE) +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.spacing = unit(0.1, "lines"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 12, face = "bold", hjust = 0.5, margin = margin(t = 1, b = 5))
+  ) +
+  scale_x_continuous(labels = label_mb, breaks = scales::pretty_breaks(n = 6)) +
+  labs(x = "Position", title = "Continuous Stretches of Linked SNPs by Scaffold - Cluster 6 AUT", fill = "Linked") +
+  guides(fill = "none")
+
+# Save Venn diagram to PDF
+output_path <- here("output", "ldna", "figures", "cluster_6_aut_scaffolds.pdf")
+ggsave(output_path, height = 5, width = 8, units = "in")
+```
+
+
+
+To make sure the windows appear even if they are small
+```{r plot-cluster-6-min-window, fig.height=5, fig.width=8}
+# Set a minimum width for the windows
+min_width <- 1e4  # for example, 1 million base pairs
+
+# Adjust the rect_data calculation
+rect_data <- cluster_6_all %>%
+  arrange(Scaffold, Position) %>%
+  mutate(change = linked != lag(linked, default = first(linked))) %>%
+  group_by(Scaffold) %>%
+  mutate(group_id = cumsum(change)) %>%
+  group_by(Scaffold, group_id, linked) %>%
+  summarize(start = min(Position), end = max(Position), .groups = 'drop') %>%
+  ungroup() %>%
+  mutate(width = end - start,
+         adjusted_end = ifelse(width < min_width, start + min_width, end))
+
+# Plotting using geom_rect with adjusted ends
+ggplot(rect_data, aes(xmin = start, xmax = adjusted_end, ymin = as.numeric(Scaffold) - 0.1, ymax = as.numeric(Scaffold) + 0.1)) +
+  geom_rect(data = rect_data %>% group_by(Scaffold) %>%
+            summarize(start = min(start), end = max(adjusted_end), .groups = 'drop'),
+            aes(xmin = start, xmax = end, ymin = as.numeric(Scaffold) - 0.1, ymax = as.numeric(Scaffold) + 0.1),
+            fill = "gray", inherit.aes = FALSE) +
+  geom_rect(aes(fill = linked), data = rect_data %>% filter(linked == TRUE)) +
+  scale_fill_manual(values = c("TRUE" = "green")) +
+  facet_wrap(~ Scaffold, scales = "fixed", ncol = 1) +
+  theme_minimal() +
+  geom_vline(data = snps_157c, aes(xintercept = Position, color = SNP), linetype = "solid", color = "red") +
+  geom_text_repel(data = snps_157c, aes(x = Position, y = as.numeric(Scaffold) + 0.2, label = SNP),
+                  inherit.aes = FALSE, angle = 45, size = 2,
+                  nudge_y = 0.1,   # Adjust this value as needed
+                  direction = "y") +
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(), panel.spacing = unit(0.1, "lines"),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        strip.text = element_text(size = 12, face = "bold", hjust = 0.5)) +
+  scale_x_continuous(labels = label_mb, breaks = scales::pretty_breaks(n = 6)) +
+  labs(x = "Position", title = "Continuous Stretches of Linked SNPs by Scaffold - Cluster 6 AUT", fill = "Linked") +
+  guides(fill = "none")
+
+# Save Venn diagram to PDF
+output_path <- here("output", "ldna", "figures", "cluster_6_aut_scaffolds_with_small_windows.pdf")
+ggsave(output_path, height = 5, width = 8, units = "in")
+```
+
+Calculate size
+```{r calculate-stretch-sizes}
+# Calculate the length of each stretch
+rect_data <- rect_data %>%
+  mutate(length = end - start + 1)
+
+# Calculate average sizes for TRUE and FALSE stretches
+average_sizes <- rect_data %>%
+  group_by(linked) %>%
+  summarize(average_size = mean(length))
+
+# Display the average sizes
+print(average_sizes)
+```
+
+
+
+We can also check what genes are in these scaffolds.
+
+Import the data
+```{r load-snps-genes-chr}
+snps_genes_chr <- readRDS(here("output", "ldna", "snps_genes_chr.rds"))
+```
+
+The expression data
+```{r load-gene-expression-data}
+gene_expression <- read_delim(here("data", "files","MANvsAUTO_sig_mRNAs.csv"), delim = ",", col_names = TRUE, show_col_types = FALSE) |>
+  dplyr::select(
+    gene,log2FoldChange
+  ) |>
+  dplyr::rename(
+    Gene_ID = gene
+  )
+head(gene_expression)
+```
+
+For example, what genes are in the cluster 14, so we can check what genes are in these scaffolds or more specifically what SNPs are in the genes
+
+First, what genes are in these scaffolds?
+
+```{r get-genes-cluster-14-scaffolds}
+cluster_14_genes <- snps_genes_chr[snps_genes_chr$Scaffold %in% cluster_14_all$Scaffold, ]
+
+# How many genes in the scaffolds
+length(unique(cluster_14_genes$Gene_ID))
+```
+
+
+Now lets check what genes have the linked SNPs
+
+```{r get-genes-cluster-14-linked-snps}
+cluster_14_snps2 <- snps_genes_chr[snps_genes_chr$SNP %in% aut_ch2$`3215_0.78`, ]
+
+# How many genes with SNPs from the ld block
+length(unique(cluster_14_snps2$Gene_ID))
+```
+
+Save as Excel file
+```{r save-cluster-14-snps2-xlsx}
+# Save the data frame to an Excel file
+write_xlsx(cluster_14_snps2, here("output", "ldna", "cluster_14_snps2.xlsx"))
+```
+
+
+
+We can count how many linked SNPs per gene
+```{r count-snps-per-gene-cluster-14}
+# Count the number of SNPs for each Gene_ID
+snp_count_per_gene <- cluster_14_snps2 %>%
+  group_by(Gene_ID) %>%
+  summarise(SNP_count = n())
+
+# View the first few rows of the result
+head(snp_count_per_gene)
+```
+
+Save as Excel file
+```{r save-snp-count-per-gene-xlsx}
+# Save the data frame to an Excel file
+write_xlsx(snp_count_per_gene, here("output", "ldna", "snp_count_per_gene.xlsx"))
+```
+
+
+Now we can check how many DE genes are among the 109 genes that have SNPs on the cluster 14
+```{r check-de-genes-in-cluster-14}
+cluster_14_snps3 <- cluster_14_snps2[cluster_14_snps2$Gene_ID %in% gene_expression$Gene_ID, ]
+
+# How many genes in the scaffolds
+length(unique(cluster_14_snps3$Gene_ID))
+unique(cluster_14_snps3$Gene_ID)
+```
+
+Get the 17 SNPs position
+```{r get-genes-for-157b-snps}
+# Get the 17 SNPs
+genes_17_snps <- snps_genes_chr |>
+  dplyr::filter(SNP %in% snps_157b$SNP)
+
+genes_17_snps <- snps_genes_chr[snps_genes_chr$SNP %in% snps_157b$SNP, ]
+
+head(genes_17_snps)
+```
+
+Save as Excel file
+```{r save-cluster-14-17-snps-xlsx}
+# Save the data frame to an Excel file
+write_xlsx(genes_17_snps, here("output", "ldna", "cluster_14_17_snps.xlsx"))
+```
+
+
+Get the SNPs for which we do not have genes
+```{r get-snps-without-gene-annotation}
+genes_17_snps2 <- snps_157b |>
+  dplyr::filter(!(SNP %in% genes_17_snps$SNP))
+head(genes_17_snps2)
+```
+
+Save it (17 genes)
+```{r save-snps-157b-txt}
+write.table(
+  snps_157b,
+  file      = here(
+    "output", "ldna", "snps_157b.txt"
+  ),
+  sep       = "\t",
+  row.names = FALSE,
+  col.names = FALSE,
+  quote     = FALSE
+)
+```
+
+
+## 8. Cluster gene intersection with differentially expressed genes
+
+This section identifies genes within the two major LD clusters (cluster 14 on chromosome 2 and cluster 6 on chromosome 1) and checks whether any overlap with differentially expressed genes from the NON-AUTO vs AUTO comparison.
+
+The gene coordinate data (`snps_genes_chr.rds`) and expression data (`snps_expression.rds`) were generated in File S5.
+
+### 8.1 Cluster 14 genes
+
+```{r load-snps-genes-chr-section8}
+snps_genes_chr <-
+  readRDS(
+    file = here(
+      "output", "ldna", "snps_genes_chr.rds"
+      )
+    )
+head(snps_genes_chr)
+```
+
+```{r load-snps-expression}
+snps_expression <-
+  readRDS(
+    here(
+      "output", "ldna", "snps_expression.rds"
+      )
+    )
+head(snps_expression)
+```
+
+```{r select-cluster-14-snp-ids}
+cluster_14_SNPs <-
+  cluster_14 |>
+  select(
+    SNP
+  )
+
+head(cluster_14_SNPs)
+```
+
+
+##### 8.1.1 Genes from coding regions
+
+```{r join-cluster-14-snps-genes}
+genes_cluster_14 <- inner_join(cluster_14_SNPs, snps_genes_chr, by = "SNP", suffix = c("", ""))
+
+head(genes_cluster_14)
+```
+
+```{r save-genes-cluster-14-xlsx}
+write_xlsx(
+  genes_cluster_14,
+  here(
+    "output", "ldna","genes_cluster_14.xlsx"
+    )
+  )
+```
+
+
+##### 8.1.2 Genes with differential expression
+
+```{r join-cluster-14-snps-de-genes}
+DE_genes_cluster_14 <- inner_join(cluster_14_SNPs, snps_expression, by = "SNP", suffix = c("", ""))
+
+head(DE_genes_cluster_14)
+```
+
+```{r save-de-genes-cluster-14-xlsx}
+write_xlsx(
+  DE_genes_cluster_14,
+  here(
+    "output", "ldna","DE_genes_cluster_14.xlsx"
+    )
+  )
+```
+
+
+### 8.2 Cluster 6 genes
+
+```{r select-cluster-6-snp-ids}
+cluster_6_SNPs <-
+  cluster_6 |>
+  select(
+    SNP
+  )
+
+head(cluster_6_SNPs)
+```
+
+
+##### 8.2.1 Genes from coding regions
+
+```{r join-cluster-6-snps-genes}
+genes_cluster_6 <- inner_join(cluster_6_SNPs, snps_genes_chr, by = "SNP", suffix = c("", ""))
+
+head(genes_cluster_6)
+```
+
+```{r save-genes-cluster-6-xlsx}
+write_xlsx(
+  genes_cluster_6,
+  here(
+    "output", "ldna","genes_cluster_6.xlsx"
+    )
+  )
+```
+
+
+##### 8.2.2 Genes with differential expression
+
+```{r join-cluster-6-snps-de-genes}
+DE_genes_cluster_6 <- inner_join(cluster_6_SNPs, snps_expression, by = "SNP", suffix = c("", ""))
+
+head(DE_genes_cluster_6)
+```
+
+```{r save-de-genes-cluster-6-xlsx}
+write_xlsx(
+  DE_genes_cluster_6,
+  here(
+    "output", "ldna","DE_genes_cluster_6.xlsx"
+    )
+  )
+```

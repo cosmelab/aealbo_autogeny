@@ -1,0 +1,182 @@
+[workspace]
+name = "albopictus-autogeny"
+version = "1.0.0"
+description = "Selection scan and LD network analysis of autogeny in Aedes albopictus"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[dependencies]
+# Core languages
+python = "3.11.*"
+pip = "*"
+r-base = "4.2.*"
+
+# Build tools (for native extensions)
+cmake = "*"
+make = "*"
+gcc = "*"
+gxx = "*"
+libstdcxx-ng = "*"
+
+# Genomics tools (bioconda)
+plink = "*"
+plink2 = "*"
+bcftools = "*"
+samtools = "*"
+vcftools = "*"
+bedtools = "*"
+tabix = "*"
+
+# GWAS-specific tools
+gcta = "*"
+# Note: snpEff requires Java, install manually or via apt
+
+# Python scientific stack
+numpy = "*"
+pandas = "*"
+matplotlib = "*"
+seaborn = "*"
+scipy = "*"
+
+# Jupyter
+jupyter = "*"
+jupyterlab = "*"
+notebook = "*"
+ipykernel = "*"
+
+# Workflow
+snakemake = "*"
+graphviz = "*"
+datamash = "*"
+
+# Terminal tools
+starship = "*"
+eza = "*"
+gh = "*"  # GitHub CLI
+
+# Graphics libraries for R
+cairo = "*"
+pango = "*"
+harfbuzz = "*"
+fribidi = "*"
+freetype = "*"
+fontconfig = "*"
+libjpeg-turbo = "*"
+libpng = "*"
+libtiff = "*"
+
+# R essentials from conda-forge
+r-tidyverse = "*"
+"r-data.table" = "*"
+r-here = "*"
+r-ggplot2 = "*"
+r-devtools = "*"
+r-reticulate = "*"
+r-irkernel = "*"
+r-scales = "*"
+r-ggrepel = "*"
+r-rcolorbrewer = "*"
+r-gridextra = "*"
+r-viridis = "*"
+"r-r.utils" = "*"
+
+# R genetics packages (PRE-COMPILED - fast install, no 30+ min compile)
+r-igraph = "*"
+r-adegenet = "*"
+r-vcfr = "*"
+r-pcadapt = "*"
+r-stampp = "*"
+
+# Network visualization (PRE-COMPILED from conda-forge)
+r-ggraph = "*"
+r-tidygraph = "*"
+r-qgraph = "*"
+
+# Bioconductor packages
+bioconductor-biomart = "*"
+bioconductor-annotationdbi = "*"
+bioconductor-genomicranges = "*"
+bioconductor-qvalue = "*"
+bioconductor-gdsfmt = "*"     # Required for SNPRelate
+bioconductor-snprelate = "*"  # Required for LDna v.63
+
+# Genomics tools
+snpeff = "*"
+
+# Statistical validation
+r-boot = "*"
+
+# R Markdown rendering (for supplementary notebooks)
+r-rmarkdown = "*"
+r-knitr = "*"
+pandoc = "*"
+
+[pypi-dependencies]
+# Python utilities
+radian = "*"
+pygments = "*"
+prompt-toolkit = "*"
+
+# Network visualization tools (for testing beautiful LD network plots)
+graphistry = "*"       # GPU-accelerated, handles millions of nodes
+nezzle = "*"           # Biological networks, GUI + Python scripting
+multiplex-plot = "*"   # Beautiful annotated network visualizations
+
+[tasks]
+# Install R packages NOT in conda-forge/bioconda (must install from CRAN/GitHub)
+# NOTE: igraph, adegenet, vcfR, pcadapt, stampp, qvalue are now in pixi.toml dependencies
+install-r-extras = """
+Rscript -e "
+  options(repos = c(CRAN = 'https://cloud.r-project.org'));
+
+  # OutFLANK - Fst-based selection scan (GitHub only)
+  if (!require('OutFLANK')) devtools::install_github('whitlock/OutFLANK');
+
+  # LDna - LD network analysis (GitHub only)
+  # Install BOTH versions in separate library paths:
+  # - v.63: has extractClusters() with rm.COCs parameter (original method)
+  # - v.2.15: has extractBranches() simplified method
+  dir.create('lib/ldna_v63', recursive=TRUE, showWarnings=FALSE);
+  dir.create('lib/ldna_v215', recursive=TRUE, showWarnings=FALSE);
+  if (!file.exists('lib/ldna_v63/LDna')) devtools::install_github('petrikemppainen/LDna', ref='v.63', lib='lib/ldna_v63');
+  if (!file.exists('lib/ldna_v215/LDna')) devtools::install_github('petrikemppainen/LDna', ref='v.2.15', lib='lib/ldna_v215');
+
+  # dartR - DArT data analysis (CRAN, complex dependencies)
+  if (!require('dartR')) install.packages('dartR');
+
+  # Population genetics extras
+  if (!require('hierfstat')) install.packages('hierfstat');
+  if (!require('pegas')) install.packages('pegas');
+
+  # Visualization extras (CRAN)
+  if (!require('ggtext')) install.packages('ggtext');
+  if (!require('ggvenn')) install.packages('ggvenn');
+  if (!require('qqman')) install.packages('qqman');
+  if (!require('flextable')) install.packages('flextable');
+  if (!require('gt')) install.packages('gt');
+  if (!require('ggstatsplot')) install.packages('ggstatsplot');
+
+  # Geospatial
+  if (!require('sf')) install.packages('sf');
+  if (!require('rnaturalearth')) install.packages('rnaturalearth');
+  if (!require('rnaturalearthdata')) install.packages('rnaturalearthdata');
+  if (!require('geosphere')) install.packages('geosphere');
+
+  # Tables and reports
+  if (!require('officer')) install.packages('officer');
+  if (!require('openxlsx')) install.packages('openxlsx');
+  if (!require('writexl')) install.packages('writexl');
+
+  cat('R package installation complete\\n');
+"
+"""
+
+test-tools = """
+echo "Testing installed tools..."
+plink --version
+plink2 --version
+bcftools --version | head -1
+R --version | head -1
+python --version
+echo "All tools available!"
+"""

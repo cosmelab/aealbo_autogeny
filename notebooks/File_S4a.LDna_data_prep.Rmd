@@ -1,0 +1,677 @@
+---
+title: "Autogenous - LDna data preparation"
+author: "Luciano V Cosme"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: breezedark
+    css:
+      - "styles.css"
+    toc: yes
+    toc_float: no
+    toc_depth: 5
+editor_options:
+  markdown:
+    wrap: 120
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval                        = TRUE,
+  echo                        = TRUE,
+  cache                       = FALSE,
+  class.output                = "bg-success"
+)
+knitr::opts_knit$set(
+  root.dir = here::here()
+)
+```
+
+> **Population label key:** The code labels used in the analysis below correspond to the following manuscript labels: AUT = AUTO, MAN = NON-AUTO, NEW = NON-AUTO-FIELD.
+
+```{r libraries, message=FALSE, warning=FALSE, results='hide'}
+# Load tidyverse FIRST to avoid rlang version conflict
+library(tidyverse)
+library(here)
+library(scales)
+library(ggrepel)
+
+# Then add LDna v.2.15 library path and load
+.libPaths(c("/workspace/lib/ldna_v215", .libPaths()))
+library(LDna)
+library(reshape2)
+library(writexl)
+```
+
+
+## 2. Data Tidying
+
+We will have to estimate LD with Plink and prepare the data to use it with LDna. The first step is to decided with SNP set we will use. For example, we did LD pruning for some analysis, so we should not use those files to start the linkage network analysis. We also have to decided about the minor allele frequency threshold we will use.
+
+We can remove the individuals that failed some of our tests. One mosquito, AUT 399, failed the heterozygosity test. None failed the relatedness test, and 867 SNPs failed the HWE test.
+We can start with file4 from the quality control. We can remove the mosquito and the SNPs that did not pass the HWE test.
+
+Create file to remove mosquito
+
+```{bash}
+echo "AUT 399" > output/quality_control/remove_aut_399.txt
+```
+
+Remove mosquito and SNPs
+```{bash}
+plink2 \
+--allow-extra-chr \
+--bfile output/quality_control/file4 \
+--remove output/quality_control/remove_aut_399.txt \
+--extract output/quality_control/passed_hwe.txt \
+--make-bed \
+--out output/ldna/files/file1 \
+--silent;
+
+grep "samples\|variants" output/ldna/files/file1.log
+```
+
+The next step is to create the chromosomal scale for this data set. Check the bim file now to see that it is using the scaffold scale
+
+```{bash}
+head output/ldna/files/file1.bim
+```
+
+### 2.1 Create chromosomal scale
+
+Import the .bim file with the SNPs to create a new chromosomal scale.
+
+```{r import-bim-file1}
+# Import the function
+source(
+  here(
+    "notebooks", "helpers", "import_bim.R")
+)
+
+# Import the data
+snps <- import_bim(here("output", "ldna", "files", "file1.bim"))
+
+# Check it
+head(snps)
+```
+
+
+Separate the tibbles into each chromosome.
+
+```{r separate_data_into_chroms}
+#   ____________________________________________________________________________
+#   separate the SNP data per chromosome                                    ####
+# chr1
+chr1_snps <-
+  snps |>
+  filter(
+    str_detect(
+      Scaffold, "^1."
+    )
+  ) |> # here we get only Scaffold rows starting with 1
+  as_tibble() # save as tibble
+#
+# chr2
+chr2_snps <-
+  snps |>
+  filter(
+    str_detect(
+      Scaffold, "^2."
+    )
+  ) |>
+  as_tibble()
+#
+# chr3
+chr3_snps <-
+  snps |>
+  filter(
+    str_detect(
+      Scaffold, "^3."
+    )
+  ) |>
+  as_tibble()
+```
+
+Import the file with sizes of each scaffold.
+
+```{r import-scaffold-sizes}
+#   ____________________________________________________________________________
+#   import the file with the scaffold sizes                                 ####
+sizes <-
+  read_delim(
+    here(
+      "data", "genome", "scaffold_sizes.txt"
+    ),
+    col_names      = FALSE,
+    show_col_types = FALSE,
+    col_types      = "cd"
+  )
+#
+# set column names
+colnames(
+  sizes
+) <- c(
+  "Scaffold", "Size"
+)
+#   ____________________________________________________________________________
+#   create new column with the chromosome number                            ####
+sizes <-
+  sizes |>
+  mutate(
+    Chromosome = case_when( # we use mutate to create a new column called Chromosome
+      startsWith(
+        Scaffold, "1"
+      ) ~ "1", # use startsWith to get Scaffold rows starting with 1 and output 1 on Chromosome column
+      startsWith(
+        Scaffold, "2"
+      ) ~ "2",
+      startsWith(
+        Scaffold, "3"
+      ) ~ "3"
+    )
+  ) |>
+  arrange(
+    Scaffold
+  )                   # to sort the order of the scaffolds, fixing the problem we have with scaffold 1.86
+# check it
+head(sizes)
+```
+
+Create new scale. Get the scaffolds for each chromosome.
+
+```{r get_list_scaffolds_per-chr}
+#   ____________________________________________________________________________
+#   separate the scaffold sizes tibble per chromosome                       ####
+# chr1
+chr1_scaffolds <-
+  sizes |>
+  filter(
+    str_detect(
+      Scaffold, "^1" # we use library stringr to get scaffolds starting with 1 (chromosome 1)
+    )
+  ) |>
+  as_tibble()
+#
+# chr2
+chr2_scaffolds <-
+  sizes |>
+  filter(
+    str_detect(
+      Scaffold, "^2" # we use library stringr to get scaffolds starting with 2 (chromosome 2)
+    )
+  ) |>
+  as_tibble()
+#
+# # chr3
+chr3_scaffolds <-
+  sizes |>
+  filter(
+    str_detect(
+      Scaffold, "^3" # we use library stringr to get scaffolds starting with 3 (chromosome 3)
+    )
+  ) |>
+  as_tibble()
+```
+
+Create a scale for each chromosome.
+
+```{r create_chr_scale}
+#   ____________________________________________________________________________
+#   create a new scale for each chromosome                                  ####
+# chr1
+chr1_scaffolds$overall_size_before_bp <-
+  0                                                                        # we create a new column with zeros
+for (i in 2:nrow(
+  chr1_scaffolds
+)
+) {                                                                        # loop to start on second line
+  chr1_scaffolds$overall_size_before_bp[i] <-                              # set position on the scale
+    chr1_scaffolds$overall_size_before_bp[i - 1] + chr1_scaffolds$Size[i - # add the scaffold size and the location to get position on new scale
+      1]
+}
+#
+# chr2
+chr2_scaffolds$overall_size_before_bp <- 0
+for (i in 2:nrow(
+  chr2_scaffolds
+)
+) {
+  chr2_scaffolds$overall_size_before_bp[i] <-
+    chr2_scaffolds$overall_size_before_bp[i - 1] + chr2_scaffolds$Size[i -
+      1]
+}
+#
+# chr3
+chr3_scaffolds$overall_size_before_bp <- 0
+for (i in 2:nrow(
+  chr3_scaffolds
+)
+) {
+  chr3_scaffolds$overall_size_before_bp[i] <-
+    chr3_scaffolds$overall_size_before_bp[i - 1] + chr3_scaffolds$Size[i -
+      1]
+}
+```
+
+Merge the data frames scaffolds and SNPs.
+
+```{r merge_snps_scales}
+#   ____________________________________________________________________________
+#   merge the data sets using the tidyverse function left_join              ####
+# chr1
+chr1_scale <-
+  chr1_snps |>          # create data frame for each chromosome, get chr1_snps
+  left_join(            # use lef_join function to merge it with chr1_scaffolds
+    chr1_scaffolds,
+    by = "Scaffold"
+  ) |>                  # set column to use for merging (Scaffold in this case)
+  na.omit() |>          # remove NAs, we don't have SNPs in every scaffold
+  mutate(
+    midPos_fullseq = as.numeric(
+      Position
+    ) +                 # make new columns numeric
+      as.numeric(
+        overall_size_before_bp
+      )
+  )
+#
+# chr2
+chr2_scale <-
+  chr2_snps |>
+  left_join(
+    chr2_scaffolds,
+    by = "Scaffold"
+  ) |>
+  na.omit() |>
+  mutate(
+    midPos_fullseq = as.numeric(
+      Position
+    ) +
+      as.numeric(
+        overall_size_before_bp
+      )
+  )
+#
+# chr3
+chr3_scale <-
+  chr3_snps |>
+  left_join(
+    chr3_scaffolds,
+    by = "Scaffold"
+  ) |>
+  na.omit() |>
+  mutate(
+    midPos_fullseq = as.numeric(
+      Position
+    ) +
+      as.numeric(
+        overall_size_before_bp
+      )
+  )
+```
+
+Merge all chromosome scales.
+
+```{r bind_chr_scales}
+#   ____________________________________________________________________________
+#   merge the data sets, and select only the columns we need                ####
+chroms <- rbind(
+  chr1_scale, chr2_scale, chr3_scale
+) |>
+  dplyr::select(
+    Chromosome, SNP, Cm, midPos_fullseq, Allele1, Allele2
+  )
+# check it
+head(chroms)
+```
+
+Save the new .bim file
+
+```{r save-new-bim-file}
+#   ____________________________________________________________________________
+#   save the new bim file with a new name, I added "B"                      ####
+write.table(
+  chroms,
+  file      = here(
+    "output", "ldna", "files", "file1B.bim"
+  ),
+  sep       = "\t",
+  row.names = FALSE,
+  col.names = FALSE,
+  quote     = FALSE
+)
+```
+
+Rename the .bim files
+```{bash}
+# change the name of the first .bim file, for example, append _backup.bim, and then replace the original file
+mv output/ldna/files/file1.bim output/ldna/files/file1_backup.bim;
+# than change the new bim we create to the original name (do it only once, otherwise it will mess up)
+mv output/ldna/files/file1B.bim output/ldna/files/file1.bim
+```
+
+Create a new bed file with Plink2 to see if it works. For example, to see if the variants are in the
+right order. Plink2 will give us a warning.
+
+```{bash}
+plink2 \
+--bfile output/ldna/files/file1 \
+--make-bed \
+--out output/ldna/test01;
+# then we remove the files
+rm output/ldna/test01.*
+```
+No warnings from Plink2. Now, we can go ahead with our analysis.
+
+
+Clean env and memory
+```{r cleanup-memory-before-subset}
+# Remove all objects from the environment
+rm(list = ls())
+
+# Run the garbage collector to free up memory
+gc()
+```
+
+### 2.2 Subset by family
+
+Estimate frequency
+```{bash}
+plink \
+--keep-allele-order \
+--bfile output/ldna/files/file1 \
+--make-bed \
+--freqx \
+--out output/ldna/files/frq \
+--silent;
+
+grep "people\|variants" output/ldna/files/frq.log
+```
+
+Now we can use bash to check if there SNPs with low heterozygosity
+```{bash}
+# count SNPs with het < 0.5 (we have 60 mosquitoes)
+cat output/ldna/files/frq.frqx | awk '{ if ($6 <= 30) print }' | wc -l
+```
+
+How many SNPs
+```{r count-low-het-snps}
+110353 - 104625
+```
+We can remove this SNPs since a limiting factor for the linkage network analysis is memory
+
+Create a file with the SNPs
+```{bash}
+# get list of snps
+cat output/ldna/files/frq.frqx | awk '{ if ($6 <= 30) print }' | awk '{print $2}' > output/ldna/files/snps_het.txt
+```
+
+We can start our analysis with MAF of 5%. If we have memory issues we can use 10% next. We will also set the genotyping missingness to zero.
+```{bash}
+# Filter MAF 5% and do not allow missing genotypes
+plink \
+--keep-allele-order \
+--bfile output/ldna/files/file1 \
+--out output/ldna/files/file2 \
+--maf 0.05 \
+--geno 0 \
+--make-bed \
+--extract output/ldna/files/snps_het.txt \
+--silent;
+
+grep "people\|variants" output/ldna/files/file2.log
+```
+
+Check the fam file families
+```{bash}
+# get the list of families
+cat output/ldna/files/file2.fam | awk '!seen[$1]++' | awk '{print $1}'
+```
+
+We can check how many mosquitoes per population as well
+```{bash get_pops_n, cache=TRUE}
+awk '{print $1}' output/ldna/files/file2.fam | sort | uniq -c | awk '{print $2, $1}'
+```
+
+I did the analysis using the 3 populations, however the results of MAN were odd because we have only 10 mosquitoes. Therefore, I decided not to do linkage network analysis with MAN. I finished the analysis to see the odd pattern, but I came back and changed the code from this part foward to include only AUT and NEW for the linkage network analysis. I will still create files for each family, however the I will use only the shared SNPs between NEW and AUT. We will not consider MAN. I left it in the code, but we will not use it for comparisons.
+
+Create a file for each of them
+```{bash}
+# make a text file with the name of each population
+for pop in $(cat output/ldna/files/file2.fam | awk '!seen[$1]++' | awk '{print $1}');
+do
+  echo $pop > output/ldna/files/$pop\.txt
+done
+```
+
+Now use Plink to create a file for each family. Now we set a MAF threshold of 5% within each family
+```{bash}
+# use plink to create a plink file for each population
+for pop in $(cat output/ldna/files/file2.fam | awk '!seen[$1]++' | awk '{print $1}');
+do
+  plink --keep-allele-order --allow-no-sex --bfile output/ldna/files/file2 --make-bed --keep-fam output/ldna/files/$pop\.txt --out output/ldna/files/$pop --geno 0 --maf 0.05 --silent
+done
+```
+
+Now we can check the number of SNPs and samples in each file
+
+AUT
+```{bash}
+grep "people\|variants" output/ldna/files/AUT.log
+```
+
+MAN
+```{bash}
+grep "people\|variants" output/ldna/files/MAN.log
+```
+
+NEW
+```{bash}
+grep "people\|variants" output/ldna/files/NEW.log
+```
+
+
+We can see that the number of SNPs kept is not the same. We need to get the shared SNPs. We can import the bim files and use R to get the intersect
+
+```{r import-pop-bim-files}
+# Import the function
+source(
+  here(
+    "notebooks", "helpers", "import_bim.R")
+)
+
+# Import the data
+AUT <- import_bim(here("output", "ldna", "files", "AUT.bim"))
+MAN <- import_bim(here("output", "ldna", "files", "MAN.bim")) # not using MAN because it has only 10 mosquitoes
+NEW <- import_bim(here("output", "ldna", "files", "NEW.bim"))
+```
+
+Now get the shared SNPs
+
+```{r find-common-snps}
+# Identify common SNPs
+# common_snps <- Reduce(intersect, list(AUT$SNP, MAN$SNP, NEW$SNP))
+common_snps <- Reduce(intersect, list(AUT$SNP, NEW$SNP))
+
+# Create a data frame with the common SNPs
+common_snps_df <- data.frame(SNP = common_snps)
+
+# Count them
+length(common_snps)
+
+# Write the data frame to a file
+write.table(common_snps_df, here("output", "ldna", "files","common_snps.txt"), quote = FALSE, row.names = FALSE, col.names = FALSE)
+```
+
+We have 32,732 SNPs. It seems we remove a lot but still too much for LDna in a laptop. We can use the cluster but first I will try using a laptop.
+
+Now we have to repeat the previous step when we create a file for each family but now using only the SNPs that have 5% MAF in each family
+
+```{bash}
+# use plink to create a plink file for each population
+for pop in $(cat output/ldna/files/file2.fam | awk '!seen[$1]++' | awk '{print $1}');
+do
+  plink --keep-allele-order --allow-no-sex --bfile output/ldna/files/file2 --make-bed --keep-fam output/ldna/files/$pop\.txt --out output/ldna/files/$pop --extract output/ldna/files/common_snps.txt --silent
+done
+```
+
+
+Now we can check the number of SNPs and they all should be the same
+
+AUT
+```{bash}
+grep "people\|variants" output/ldna/files/AUT.log
+```
+
+MAN
+```{bash}
+grep "people\|variants" output/ldna/files/MAN.log
+```
+
+NEW
+```{bash}
+grep "people\|variants" output/ldna/files/NEW.log
+```
+
+Perfect. Now we can split the data by chromosome for each family.
+
+### 2.3 Subset by chromosome within each family
+
+We can create a new directory
+```{bash}
+# Create a directory
+mkdir -p output/ldna/pop;
+
+# We can copy the family files there
+cp output/ldna/files/AUT* output/ldna/pop;
+cp output/ldna/files/MAN* output/ldna/pop;
+cp output/ldna/files/NEW* output/ldna/pop;
+
+# remove the files we dont need
+rm output/ldna/pop/*.txt;
+rm output/ldna/pop/*.nosex
+```
+
+We can now get a list of SNPs for each chromosome. All the populations have the same SNPs, so we can use any of the files.
+
+```{bash}
+cat output/ldna/pop/AUT.bim | awk '$1 == 1' | awk '{print $2}' > output/ldna/pop/chr1_snps.txt;
+cat output/ldna/pop/AUT.bim | awk '$1 == 2' | awk '{print $2}' > output/ldna/pop/chr2_snps.txt;
+cat output/ldna/pop/AUT.bim | awk '$1 == 3' | awk '{print $2}' > output/ldna/pop/chr3_snps.txt
+```
+
+### 2.4 Estimate LD with Plink for each chromosome
+
+```{bash}
+# chr1
+for pop in $(ls -1 output/ldna/pop/*.bim | sed 's/output\/ldna\/pop\///' | sed 's/\.[^.]*$//');
+do
+  plink --allow-no-sex --keep-allele-order --bfile output/ldna/pop/$pop --out output/ldna/pop/$pop\.chr1 --r2 triangle gz --extract output/ldna/pop/chr1_snps.txt --silent
+done;
+
+# chr2
+for pop in $(ls -1 output/ldna/pop/*.bim | sed 's/output\/ldna\/pop\///' | sed 's/\.[^.]*$//');
+do
+  plink --allow-no-sex --keep-allele-order --bfile output/ldna/pop/$pop --out output/ldna/pop/$pop\.chr2 --r2 triangle gz --extract output/ldna/pop/chr2_snps.txt --silent
+done;
+
+# chr3
+for pop in $(ls -1 output/ldna/pop/*.bim | sed 's/output\/ldna\/pop\///' | sed 's/\.[^.]*$//');
+do
+  plink --allow-no-sex --keep-allele-order --bfile output/ldna/pop/$pop --out output/ldna/pop/$pop\.chr3 --r2 triangle gz --extract output/ldna/pop/chr3_snps.txt --silent
+done
+```
+
+Create directory for each chromosome and move the files
+```{bash}
+# make dirs and remove unnecessary files
+rm output/ldna/pop/*.nosex;
+mkdir -p output/ldna/pop/chr1; mv output/ldna/pop/*chr1.* output/ldna/pop/chr1/;
+mkdir -p output/ldna/pop/chr2; mv output/ldna/pop/*chr2.* output/ldna/pop/chr2/;
+mkdir -p output/ldna/pop/chr3; mv output/ldna/pop/*chr3.* output/ldna/pop/chr3/;
+
+# copy files
+cp output/ldna/pop/chr1*.txt output/ldna/pop/chr1/;
+cp output/ldna/pop/chr2*.txt output/ldna/pop/chr2/;
+cp output/ldna/pop/chr3*.txt output/ldna/pop/chr3/
+```
+
+
+
+### 2.5 Prepare LD matrices
+
+Prepare files for LDna
+```{bash}
+# chr1
+cat output/ldna/pop/chr1_snps.txt | awk '{print $1}' > output/ldna/pop/chr1/snps1.txt;
+echo "" > output/ldna/pop/chr1/snps2.txt;
+cat output/ldna/pop/chr1/snps2.txt output/ldna/pop/chr1/snps1.txt | gzip -9 > output/ldna/pop/chr1/snps3.txt.gz;
+cat output/ldna/pop/chr1/snps1.txt | tr '\n' ' ' |  awk -v OFS='\t' '{$1=$1}1' | gzip -9 > output/ldna/pop/chr1/header.txt.gz;
+
+# chr2
+cat output/ldna/pop/chr2_snps.txt | awk '{print $1}' > output/ldna/pop/chr2/snps1.txt;
+echo "" > output/ldna/pop/chr2/snps2.txt;
+cat output/ldna/pop/chr2/snps2.txt output/ldna/pop/chr2/snps1.txt | gzip -9 > output/ldna/pop/chr2/snps3.txt.gz;
+cat output/ldna/pop/chr2/snps1.txt | tr '\n' ' ' |  awk -v OFS='\t' '{$1=$1}1' | gzip -9 > output/ldna/pop/chr2/header.txt.gz;
+
+# chr3
+cat output/ldna/pop/chr3_snps.txt | awk '{print $1}' > output/ldna/pop/chr3/snps1.txt;
+echo "" > output/ldna/pop/chr3/snps2.txt;
+cat output/ldna/pop/chr3/snps2.txt output/ldna/pop/chr3/snps1.txt | gzip -9 > output/ldna/pop/chr3/snps3.txt.gz;
+cat output/ldna/pop/chr3/snps1.txt | tr '\n' ' ' |  awk -v OFS='\t' '{$1=$1}1' | gzip -9 > output/ldna/pop/chr3/header.txt.gz;
+```
+
+Add header to the matrices
+```{bash}
+# chr1
+for pop in $(ls -1 output/ldna/pop/chr1/*.ld.gz | sed 's/output\/ldna\/pop\/chr1\///' | sed 's/\.[^.]*$//');
+do
+  cat output/ldna/pop/chr1/header.txt.gz output/ldna/pop/chr1/$pop\.gz > output/ldna/pop/chr1/$pop\.txt.gz
+done;
+
+# chr2
+for pop in $(ls -1 output/ldna/pop/chr2/*.ld.gz | sed 's/output\/ldna\/pop\/chr2\///' | sed 's/\.[^.]*$//');
+do
+  cat output/ldna/pop/chr2/header.txt.gz output/ldna/pop/chr2/$pop\.gz > output/ldna/pop/chr2/$pop\.txt.gz
+done;
+
+# chr3
+for pop in $(ls -1 output/ldna/pop/chr3/*.ld.gz | sed 's/output\/ldna\/pop\/chr3\///' | sed 's/\.[^.]*$//');
+do
+  cat output/ldna/pop/chr3/header.txt.gz output/ldna/pop/chr3/$pop\.gz > output/ldna/pop/chr3/$pop\.txt.gz
+done
+```
+
+
+We can rename the files
+```{bash}
+# rename the files (remove the ld)
+for f in output/ldna/pop/chr1/*ld.txt.gz; do [ -f "$f" ] && mv "$f" "${f/ld.txt.gz/txt.gz}"; done
+for f in output/ldna/pop/chr2/*ld.txt.gz; do [ -f "$f" ] && mv "$f" "${f/ld.txt.gz/txt.gz}"; done
+for f in output/ldna/pop/chr3/*ld.txt.gz; do [ -f "$f" ] && mv "$f" "${f/ld.txt.gz/txt.gz}"; done
+```
+
+Now we can add the row names (this takes time and the output files are near 1Gb)
+```{bash}
+# chr1
+for pop in $(ls -1 output/ldna/pop/chr1/*.chr1.txt.gz | sed 's/output\/ldna\/pop\/chr1\///' | sed 's/\.chr1\.txt\.gz$//');
+do
+  paste <(gzip -d < output/ldna/pop/chr1/snps3.txt.gz) <(gzip -d < output/ldna/pop/chr1/$pop.chr1.txt.gz) > output/ldna/pop/chr1/${pop}.chr1.txt
+done
+
+# chr2
+for pop in $(ls -1 output/ldna/pop/chr2/*.chr2.txt.gz | sed 's/output\/ldna\/pop\/chr2\///' | sed 's/\.chr2\.txt\.gz$//');
+do
+  paste <(gzip -d < output/ldna/pop/chr2/snps3.txt.gz) <(gzip -d < output/ldna/pop/chr2/$pop.chr2.txt.gz) > output/ldna/pop/chr2/${pop}.chr2.txt
+done
+
+# chr3
+for pop in $(ls -1 output/ldna/pop/chr3/*.chr3.txt.gz | sed 's/output\/ldna\/pop\/chr3\///' | sed 's/\.chr3\.txt\.gz$//');
+do
+  paste <(gzip -d < output/ldna/pop/chr3/snps3.txt.gz) <(gzip -d < output/ldna/pop/chr3/$pop.chr3.txt.gz) > output/ldna/pop/chr3/${pop}.chr3.txt
+done
+```
+
+I deleted the MAN files for chromosome 2 and 3 since we will not estimate LD for them. I kept chromosome 1 to show how small sample size bias the results.
+
+

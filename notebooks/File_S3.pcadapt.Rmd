@@ -1,0 +1,596 @@
+---
+title: "Autogenous - Selection Scan with pcadapt"
+author: "Luciano V Cosme"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: breezedark
+    css:
+      - "styles.css"
+    toc: yes
+    toc_float: no
+    toc_depth: 5
+editor_options:
+  markdown:
+    wrap: 120
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval                        = TRUE,
+  echo                        = TRUE,
+  cache                       = FALSE,
+  class.output                = "bg-success"
+)
+knitr::opts_knit$set(
+  root.dir = here::here()
+)
+```
+
+
+
+> **Population label key:** The code labels used in the analysis below correspond to the following manuscript labels: AUT = AUTO, MAN = NON-AUTO, NEW = NON-AUTO-FIELD.
+
+## 1. R libraries and software
+
+```{r libraries, message=FALSE, results='hide', warning=FALSE}
+library(tidyverse)
+library(here)
+library(qvalue)
+library(ggvenn)
+library(ggrepel)
+library(pcadapt)
+```
+
+## 2. Helper functions
+
+```{r helper-functions}
+# Load custom ggplot theme
+source(here("notebooks", "helpers", "my_theme2.R"))
+
+# Chromosome color palette
+chrom_colors <- c("#CCF6D6", "#F6E1CC", "#CCD8F6")
+
+# Format genomic positions as Mb
+mb_format <- function(x) {
+  paste0(format(x / 1e6, big.mark = "", scientific = FALSE), "Mb")
+}
+
+# Run pcadapt, build results data frame, mark BH outliers, save SNP list
+run_pcadapt <- function(bed_file, bim_file, K, out_snp_file) {
+  x <- read.pcadapt(here("output", "outflank", bed_file), type = "bed")
+  res <- pcadapt(x, method = "mahalanobis", min.maf = 0.1,
+                 LD.clumping = NULL, tol = 1e-04, K = K)
+  snps <- read_delim(
+    here("output", "outflank", bim_file),
+    col_names = FALSE, show_col_types = FALSE, col_types = "ccidcc"
+  )
+  colnames(snps) <- c("Scaffold", "SNP", "Cm", "Position", "Allele1", "Allele2")
+  df <- data.frame(
+    SNP        = snps$SNP,
+    Chromosome = snps$Scaffold,
+    Position   = snps$Position,
+    pvalues    = res$pvalues,
+    stat       = res$stat
+  ) |> drop_na()
+  padj <- p.adjust(df$pvalues, method = "BH")
+  df$highlight <- padj < 0.05
+  outlier_snps <- df$SNP[df$highlight]
+  write.table(outlier_snps,
+    file = here("output", "pcadapt", out_snp_file),
+    row.names = FALSE, quote = FALSE, col.names = FALSE, sep = "\n"
+  )
+  list(res = res, df = df)
+}
+
+# Manhattan plot for pcadapt results
+plot_manhattan <- function(df, title_label, save_path) {
+  color_vector <- chrom_colors
+  names(color_vector) <- unique(df$Chromosome)
+  min_pval_snps <- df |>
+    filter(highlight) |>
+    group_by(Chromosome) |>
+    slice(which.min(pvalues))
+  p <- ggplot(df, aes(x = Position, y = -log10(pvalues))) +
+    geom_point(aes(color = Chromosome),
+               data = subset(df, !highlight), size = .5) +
+    geom_point(color = "magenta",
+               data = subset(df, highlight), size = .5) +
+    scale_color_manual(values = color_vector, guide = "none") +
+    labs(
+      title   = title_label,
+      x       = "Position",
+      y       = "-log10(p-value)",
+      caption = "Magenta: significant after Benjamini-Hochberg adjustment (alpha = 0.05)."
+    ) +
+    facet_wrap(~Chromosome, scales = "free_x") +
+    scale_x_continuous(labels = mb_format) +
+    my_theme() +
+    theme(
+      panel.spacing  = unit(.2, "lines"),
+      plot.margin    = unit(c(1, 1, 2, 2), "lines"),
+      plot.caption   = element_text(face = "italic", color = "#574E4E")
+    ) +
+    geom_text_repel(
+      data = min_pval_snps, aes(label = SNP),
+      size = 3, nudge_y = 0.01, segment.color = NA, max.overlaps = Inf
+    )
+  ggsave(here("output", "pcadapt", "figures", save_path),
+         width = 8, height = 5, units = "in")
+  p
+}
+
+# Outlier method comparison: q-values, BH, Bonferroni
+compare_thresholds <- function(res) {
+  qval   <- qvalue(res$pvalues)$qvalues
+  cat("q-values (alpha=0.05):    ", sum(qval < 0.05), "\n")
+  cat("BH adjusted (alpha=0.05): ",
+      sum(p.adjust(res$pvalues, method = "BH") < 0.05), "\n")
+  cat("Bonferroni (alpha=0.05):  ",
+      sum(p.adjust(res$pvalues, method = "bonferroni") < 0.05), "\n")
+}
+
+# Venn diagram and shared-SNP file for outFlank vs pcadapt
+venn_outflank_pcadapt <- function(outflank_file, pcadapt_file, venn_pdf, common_txt,
+                                   fill_colors = c("steelblue", "darkorange")) {
+  of_snps <- read.table(here("output", "outflank", outflank_file),
+                        stringsAsFactors = FALSE) |> drop_na()
+  pc_snps <- read.table(here("output", "pcadapt", pcadapt_file),
+                        stringsAsFactors = FALSE)
+  lst <- list(outFlank = of_snps$V1, pcadapt = pc_snps$V1)
+  vd  <- ggvenn(lst, fill_color = fill_colors)
+  print(vd)
+  common <- Reduce(intersect, lst)
+  write.table(common,
+    file = here("output", "pcadapt", common_txt),
+    row.names = FALSE, col.names = FALSE, quote = FALSE
+  )
+  ggsave(here("output", "pcadapt", "figures", venn_pdf),
+         vd, height = 5, width = 5, dpi = 300)
+  common
+}
+
+# SNP cluster table (10 Mb windows) as flextable + Word doc
+cluster_table <- function(filtered_df, docx_file) {
+  cluster_snps_df <- filtered_df |>
+    mutate(Window_Start = floor(Position / 1e7) * 1e7) |>
+    group_by(Chromosome, Window_Start) |>
+    summarise(SNPs = list(SNP), .groups = "drop") |>
+    mutate(SNPs = sapply(SNPs, paste, collapse = ", "))
+  knitr::kable(cluster_snps_df)
+}
+```
+
+## 3. pcadapt with all 3 populations (NON-AUTO, NON-AUTO-FIELD and AUTO)
+
+pcadapt performs principal component analysis and tests for selection outliers based on correlations between genetic variation and the first K principal components.
+
+
+K = 2 was selected based on scree plot inspection.
+
+```{r nma-auto-screeplot, warning=FALSE}
+x_all3 <- read.pcadapt(here("output", "outflank", "autogenous.bed"), type = "bed")
+plot(pcadapt(x_all3, K = 30), option = "screeplot")
+```
+
+```{r nma-auto-run}
+out_all3 <- run_pcadapt("autogenous.bed", "autogenous.bim",
+                         K = 2, out_snp_file = "SNPs_pcadapt.txt")
+pcadapt_res <- out_all3$res
+pcadapt_res_df <- out_all3$df
+cat("BH outliers:", sum(pcadapt_res_df$highlight), "\n")
+```
+
+```{r nma-auto-manhattan}
+plot_manhattan(pcadapt_res_df,
+               title_label = "pcadapt: NON-AUTO + NON-AUTO-FIELD + AUTO",
+               save_path   = "pcadapt.pdf")
+```
+
+```{r nma-auto-diagnostics}
+plot(pcadapt_res, option = "qqplot")
+plot(pcadapt_res, option = "scores")
+hist(pcadapt_res$pvalues, xlab = "p-values", main = NULL, breaks = 50, col = "pink")
+```
+
+```{r nma-auto-thresholds, warning=FALSE}
+compare_thresholds(pcadapt_res)
+```
+
+```{r nma-auto-loadings}
+par(mfrow = c(2, 2))
+for (i in 1:2)
+  plot(pcadapt_res$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
+```
+
+### 3.1 Venn diagram outFlank vs pcadapt
+> **Note:** This section was not used in the final version of the manuscript.
+
+```{r nma-auto-venn}
+common_SNPs <- venn_outflank_pcadapt(
+  outflank_file = "SNPs_outFlank.txt",
+  pcadapt_file  = "SNPs_pcadapt.txt",
+  venn_pdf      = "significant_snps.pdf",
+  common_txt    = "common_SNPs_pcadapt_outflank.txt"
+)
+```
+
+```{r nma-auto-shared-manhattan, fig.width=8, fig.height=5}
+filtered_df <- pcadapt_res_df |> filter(SNP %in% common_SNPs)
+color_vector <- chrom_colors
+names(color_vector) <- unique(pcadapt_res_df$Chromosome)
+min_pval_snps <- pcadapt_res_df |> filter(highlight) |>
+  group_by(Chromosome) |> slice(which.min(pvalues))
+
+ggplot(pcadapt_res_df, aes(x = Position, y = -log10(pvalues))) +
+  geom_point(aes(color = Chromosome), data = subset(pcadapt_res_df, !highlight), size = .3) +
+  geom_point(color = "magenta", data = subset(filtered_df, highlight), size = .3) +
+  scale_color_manual(values = color_vector, guide = "none") +
+  labs(x = "Position", y = "-log10(p-value)",
+       caption = "Magenta: BH-adjusted (alpha=0.05) outliers shared between pcadapt and outFlank.") +
+  facet_wrap(~Chromosome, scales = "free_x") +
+  scale_x_continuous(labels = mb_format) +
+  my_theme() +
+  theme(panel.spacing = unit(.2, "lines"),
+        plot.margin = unit(c(1, 1, 2, 2), "lines"),
+        plot.caption = element_text(face = "italic")) +
+  geom_text_repel(data = min_pval_snps, aes(label = SNP),
+                  size = 3, nudge_y = 0.01, segment.color = NA, max.overlaps = Inf)
+
+ggsave(here("output", "pcadapt", "figures", "pcadapt_outflank.pdf"),
+       width = 8, height = 5, units = "in")
+```
+
+```{r nma-auto-cluster-table}
+cluster_table(filtered_df, "snps_pcadap_outflank.docx")
+```
+
+
+
+
+
+## 4. pcadapt: NON-AUTO vs AUTO (pairwise)
+
+pcadapt performs principal component analysis and tests for selection outliers based on correlations between genetic variation and the first K principal components.
+
+```{r nma-auto-pair-screeplot, warning=FALSE}
+rm(list = setdiff(ls(), c("run_pcadapt", "plot_manhattan", "compare_thresholds",
+                           "venn_outflank_pcadapt", "cluster_table",
+                           "chrom_colors", "mb_format", "my_theme")))
+gc()
+x_ma <- read.pcadapt(here("output", "outflank", "man_aut.bed"), type = "bed")
+plot(pcadapt(x_ma, K = 30), option = "screeplot")
+```
+
+```{r nma-auto-pair-run}
+out_ma <- run_pcadapt("man_aut.bed", "man_aut.bim",
+                       K = 2, out_snp_file = "man_aut_SNPs_pcadapt.txt")
+pcadapt_res <- out_ma$res
+pcadapt_res_df <- out_ma$df
+cat("BH outliers:", sum(pcadapt_res_df$highlight), "\n")
+```
+
+```{r nma-auto-pair-manhattan}
+plot_manhattan(pcadapt_res_df,
+               title_label = "pcadapt: NON-AUTO vs AUTO",
+               save_path   = "man_aut_pcadapt.pdf")
+```
+
+```{r nma-auto-pair-diagnostics}
+plot(pcadapt_res, option = "qqplot")
+plot(pcadapt_res, option = "scores")
+hist(pcadapt_res$pvalues, xlab = "p-values", main = NULL, breaks = 50, col = "pink")
+```
+
+```{r nma-auto-pair-thresholds, warning=FALSE}
+compare_thresholds(pcadapt_res)
+```
+
+```{r nma-auto-pair-loadings}
+par(mfrow = c(2, 2))
+for (i in 1:2)
+  plot(pcadapt_res$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
+```
+
+### 4.1 Venn diagram outFlank vs pcadapt
+> **Note:** This section was not used in the final version of the manuscript.
+
+```{r nma-auto-pair-venn}
+common_SNPs <- venn_outflank_pcadapt(
+  outflank_file = "man_aut_SNPs_outFlank.txt",
+  pcadapt_file  = "man_aut_SNPs_pcadapt.txt",
+  venn_pdf      = "man_aut_significant_snps.pdf",
+  common_txt    = "man_aut_common_SNPs_pcadapt_outflank.txt"
+)
+```
+
+```{r nma-auto-pair-shared-manhattan, fig.width=8, fig.height=5}
+filtered_df <- pcadapt_res_df |> filter(SNP %in% common_SNPs)
+color_vector <- chrom_colors
+names(color_vector) <- unique(pcadapt_res_df$Chromosome)
+min_pval_snps <- pcadapt_res_df |> filter(highlight) |>
+  group_by(Chromosome) |> slice(which.min(pvalues))
+
+ggplot(pcadapt_res_df, aes(x = Position, y = -log10(pvalues))) +
+  geom_point(aes(color = Chromosome), data = subset(pcadapt_res_df, !highlight), size = .3) +
+  geom_point(color = "magenta", data = subset(filtered_df, highlight), size = .3) +
+  scale_color_manual(values = color_vector, guide = "none") +
+  labs(x = "Position", y = "-log10(p-value)",
+       caption = "Magenta: BH-adjusted (alpha=0.05) outliers shared between pcadapt and outFlank.") +
+  facet_wrap(~Chromosome, scales = "free_x") +
+  scale_x_continuous(labels = mb_format) +
+  my_theme() +
+  theme(panel.spacing = unit(.2, "lines"),
+        plot.margin = unit(c(1, 1, 2, 2), "lines"),
+        plot.caption = element_text(face = "italic")) +
+  geom_text_repel(data = min_pval_snps, aes(label = SNP),
+                  size = 3, nudge_y = 0.01, segment.color = NA, max.overlaps = Inf)
+
+ggsave(here("output", "pcadapt", "figures", "man_aut_pcadapt_outflank.pdf"),
+       width = 8, height = 5, units = "in")
+```
+
+```{r nma-auto-pair-cluster-table}
+cluster_table(filtered_df, "man_aut_snps_pcadap_outflank.docx")
+```
+
+
+## 5. pcadapt: NON-AUTO-FIELD vs AUTO (pairwise)
+
+pcadapt performs principal component analysis and tests for selection outliers based on correlations between genetic variation and the first K principal components.
+
+```{r naf-auto-pair-screeplot, warning=FALSE}
+rm(list = setdiff(ls(), c("run_pcadapt", "plot_manhattan", "compare_thresholds",
+                           "venn_outflank_pcadapt", "cluster_table",
+                           "chrom_colors", "mb_format", "my_theme")))
+gc()
+x_na <- read.pcadapt(here("output", "outflank", "new_aut.bed"), type = "bed")
+plot(pcadapt(x_na, K = 30), option = "screeplot")
+```
+
+```{r naf-auto-pair-run}
+out_na <- run_pcadapt("new_aut.bed", "new_aut.bim",
+                       K = 2, out_snp_file = "new_aut_SNPs_pcadapt.txt")
+pcadapt_res <- out_na$res
+pcadapt_res_df <- out_na$df
+cat("BH outliers:", sum(pcadapt_res_df$highlight), "\n")
+```
+
+```{r naf-auto-pair-manhattan}
+plot_manhattan(pcadapt_res_df,
+               title_label = "pcadapt: NON-AUTO-FIELD vs AUTO",
+               save_path   = "new_aut_pcadapt.pdf")
+```
+
+```{r naf-auto-pair-diagnostics}
+plot(pcadapt_res, option = "qqplot")
+plot(pcadapt_res, option = "scores")
+hist(pcadapt_res$pvalues, xlab = "p-values", main = NULL, breaks = 50, col = "pink")
+```
+
+```{r naf-auto-pair-thresholds, warning=FALSE}
+compare_thresholds(pcadapt_res)
+```
+
+```{r naf-auto-pair-loadings}
+par(mfrow = c(2, 2))
+for (i in 1:2)
+  plot(pcadapt_res$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
+```
+
+### 5.1 Venn diagram outFlank vs pcadapt
+> **Note:** This section was not used in the final version of the manuscript.
+
+```{r naf-auto-pair-venn}
+common_SNPs <- venn_outflank_pcadapt(
+  outflank_file = "new_aut_SNPs_outFlank.txt",
+  pcadapt_file  = "new_aut_SNPs_pcadapt.txt",
+  venn_pdf      = "new_aut_significant_snps.pdf",
+  common_txt    = "new_aut_common_SNPs_pcadapt_outflank.txt"
+)
+```
+
+```{r naf-auto-pair-shared-manhattan, fig.width=8, fig.height=5}
+filtered_df <- pcadapt_res_df |> filter(SNP %in% common_SNPs)
+color_vector <- chrom_colors
+names(color_vector) <- unique(pcadapt_res_df$Chromosome)
+min_pval_snps <- pcadapt_res_df |> filter(highlight) |>
+  group_by(Chromosome) |> slice(which.min(pvalues))
+
+ggplot(pcadapt_res_df, aes(x = Position, y = -log10(pvalues))) +
+  geom_point(aes(color = Chromosome), data = subset(pcadapt_res_df, !highlight), size = .3) +
+  geom_point(color = "magenta", data = subset(filtered_df, highlight), size = .3) +
+  scale_color_manual(values = color_vector, guide = "none") +
+  labs(x = "Position", y = "-log10(p-value)",
+       caption = "Magenta: BH-adjusted (alpha=0.05) outliers shared between pcadapt and outFlank.") +
+  facet_wrap(~Chromosome, scales = "free_x") +
+  scale_x_continuous(labels = mb_format) +
+  my_theme() +
+  theme(panel.spacing = unit(.2, "lines"),
+        plot.margin = unit(c(1, 1, 2, 2), "lines"),
+        plot.caption = element_text(face = "italic")) +
+  geom_text_repel(data = min_pval_snps, aes(label = SNP),
+                  size = 3, nudge_y = 0.01, segment.color = NA, max.overlaps = Inf)
+
+ggsave(here("output", "pcadapt", "figures", "new_aut_pcadapt_outflank.pdf"),
+       width = 8, height = 5, units = "in")
+```
+
+```{r naf-auto-pair-cluster-table}
+cluster_table(filtered_df, "new_aut_snps_pcadap_outflank.docx")
+```
+
+
+
+
+
+
+
+## 6. pcadapt: NON-AUTO vs NON-AUTO-FIELD (pairwise)
+
+pcadapt performs principal component analysis and tests for selection outliers based on correlations between genetic variation and the first K principal components.
+
+```{r nma-naf-pair-screeplot, warning=FALSE}
+rm(list = setdiff(ls(), c("run_pcadapt", "plot_manhattan", "compare_thresholds",
+                           "venn_outflank_pcadapt", "cluster_table",
+                           "chrom_colors", "mb_format", "my_theme")))
+gc()
+x_mn <- read.pcadapt(here("output", "outflank", "man_new.bed"), type = "bed")
+plot(pcadapt(x_mn, K = 30), option = "screeplot")
+```
+
+K = 3 was selected based on scree plot inspection.
+
+```{r nma-naf-pair-run}
+out_mn <- run_pcadapt("man_new.bed", "man_new.bim",
+                       K = 3, out_snp_file = "man_new_SNPs_pcadapt.txt")
+pcadapt_res <- out_mn$res
+pcadapt_res_df <- out_mn$df
+cat("BH outliers:", sum(pcadapt_res_df$highlight), "\n")
+```
+
+```{r nma-naf-pair-manhattan}
+plot_manhattan(pcadapt_res_df,
+               title_label = "pcadapt: NON-AUTO vs NON-AUTO-FIELD",
+               save_path   = "man_new_pcadapt.pdf")
+```
+
+```{r nma-naf-pair-diagnostics}
+plot(pcadapt_res, option = "qqplot")
+plot(pcadapt_res, option = "scores")
+hist(pcadapt_res$pvalues, xlab = "p-values", main = NULL, breaks = 50, col = "pink")
+```
+
+```{r nma-naf-pair-thresholds, warning=FALSE}
+compare_thresholds(pcadapt_res)
+```
+
+```{r nma-naf-pair-loadings}
+par(mfrow = c(2, 2))
+for (i in 1:2)
+  plot(pcadapt_res$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
+```
+
+### 6.1 Venn diagram outFlank vs pcadapt
+> **Note:** This section was not used in the final version of the manuscript.
+
+OutFlank did not identify any outlier for this comparison; the Venn diagram is not produced.
+
+## 7. Venn diagram across comparisons
+> **Note:** This section was not used in the final version of the manuscript.
+
+SNPs shared between the pcadapt+outFlank intersection sets from the three comparisons involving AUTO are combined into a four-way Venn diagram.
+
+```{r venn-four-way, fig.width=8, fig.height=8}
+NEW_MAN_AUT <- read.table(
+  here("output", "pcadapt", "common_SNPs_pcadapt_outflank.txt"),
+  stringsAsFactors = FALSE) |> drop_na()
+MAN_AUT <- read.table(
+  here("output", "pcadapt", "man_aut_common_SNPs_pcadapt_outflank.txt"),
+  stringsAsFactors = FALSE)
+NEW_AUT <- read.table(
+  here("output", "pcadapt", "new_aut_common_SNPs_pcadapt_outflank.txt"),
+  stringsAsFactors = FALSE)
+NEW_MAN <- read.table(
+  here("output", "pcadapt", "man_new_SNPs_pcadapt.txt"),
+  stringsAsFactors = FALSE)
+
+lst4 <- list(
+  "AUTO+NON-AUTO+NON-AUTO-FIELD" = NEW_MAN_AUT$V1,
+  "NON-AUTO vs AUTO"             = MAN_AUT$V1,
+  "NON-AUTO-FIELD vs AUTO"       = NEW_AUT$V1,
+  "NON-AUTO vs NON-AUTO-FIELD"   = NEW_MAN$V1
+)
+
+venn_diagram <- ggvenn(lst4) +
+  theme(plot.margin = margin(60, 60, 60, 60, "points"),
+        text = element_text(size = 5))
+print(venn_diagram)
+ggsave(here("output", "pcadapt", "figures", "4_way_venn_significant_snps.pdf"),
+       venn_diagram, height = 8, width = 8, dpi = 300)
+
+common_elements <- Reduce(intersect, list(NEW_MAN_AUT$V1, MAN_AUT$V1, NEW_AUT$V1))
+write.table(common_elements,
+  file = here("output", "pcadapt", "4_way_venn_common_SNPs_pcadapt_outflank.txt"),
+  row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+cat("SNP counts per set:\n")
+cat("  AUTO+NON-AUTO+NON-AUTO-FIELD:", nrow(NEW_MAN_AUT), "\n")
+cat("  NON-AUTO vs AUTO:            ", nrow(MAN_AUT), "\n")
+cat("  NON-AUTO-FIELD vs AUTO:      ", nrow(NEW_AUT), "\n")
+cat("  NON-AUTO vs NON-AUTO-FIELD:  ", nrow(NEW_MAN), "\n")
+```
+
+```{r venn-shared-manhattan, fig.width=8, fig.height=5}
+color_vector <- chrom_colors
+names(color_vector) <- unique(pcadapt_res_df$Chromosome)
+filtered_df <- pcadapt_res_df |> filter(SNP %in% common_elements)
+
+ggplot(pcadapt_res_df, aes(x = Position, y = -log10(pvalues))) +
+  geom_point(aes(color = Chromosome), data = subset(pcadapt_res_df, !highlight), size = .3) +
+  geom_point(color = "magenta", data = subset(filtered_df, highlight), size = .3) +
+  scale_color_manual(values = color_vector, guide = "none") +
+  labs(x = "Position", y = "-log10(p-value)") +
+  facet_wrap(~Chromosome, scales = "free_x") +
+  scale_x_continuous(labels = mb_format) +
+  my_theme() +
+  theme(panel.spacing = unit(.2, "lines"),
+        plot.margin = unit(c(1, 1, 2, 2), "lines"))
+
+ggsave(here("output", "pcadapt", "figures", "manhattan_from_4_way_venn_snps.pdf"),
+       height = 5, width = 8, dpi = 300)
+```
+
+```{r venn-shared-cluster-table}
+cluster_table(filtered_df, "4_way_venn_pcadap_outflank.docx")
+```
+
+Union of outlier SNPs across all three AUTO-involving comparisons:
+
+```{r venn-union-snps, fig.width=8, fig.height=5}
+combined_df <- bind_rows(MAN_AUT, NEW_AUT, NEW_MAN_AUT)
+result <- combined_df |>
+  group_by(V1) |>
+  summarise(Count = n(), .groups = "drop") |>
+  arrange(V1) |>
+  dplyr::rename(SNP = V1)
+cat("Unique SNPs (union):", n_distinct(result$SNP), "\n")
+
+# Save union of outlier SNPs for downstream notebooks (S4, S5, S6)
+write.table(result$SNP,
+  file = here("output", "snpeff", "SNPs_158.txt"),
+  row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+filtered_df <- pcadapt_res_df |> filter(SNP %in% result$SNP)
+cluster_df <- filtered_df |>
+  mutate(Window_Start = floor(Position / 1e7) * 1e7) |>
+  group_by(Chromosome, Window_Start) |>
+  summarise(SNP_count = n(), .groups = "drop") |>
+  dplyr::filter(SNP_count >= 3)
+
+ggplot(pcadapt_res_df, aes(x = Position, y = -log10(pvalues))) +
+  geom_point(aes(color = Chromosome), data = subset(pcadapt_res_df, !highlight), size = .3) +
+  geom_point(color = "magenta", data = subset(filtered_df, highlight), size = .3) +
+  geom_vline(data = cluster_df, aes(xintercept = Window_Start + 5e6),
+             color = "lightgray", linetype = "dashed", linewidth = 0.5) +
+  geom_text_repel(data = cluster_df,
+                  aes(x = Window_Start + 5e6, y = 10, label = SNP_count),
+                  vjust = -1, hjust = -0.5) +
+  scale_color_manual(values = color_vector, guide = "none") +
+  labs(x = "Position", y = "-log10(p-value)",
+       caption = "Magenta: union of BH-adjusted outliers across AUTO-involving comparisons. Dashed lines: 10 Mb windows with >= 3 SNPs.") +
+  facet_wrap(~Chromosome, scales = "free_x") +
+  scale_x_continuous(labels = mb_format) +
+  my_theme() +
+  theme(panel.spacing = unit(.2, "lines"),
+        plot.margin = unit(c(1, 1, 2, 2), "lines"),
+        plot.caption = element_text(face = "italic"),
+        legend.position = "none")
+
+ggsave(here("output", "pcadapt", "figures", "manhattan_from_4_way_venn_158_snps.pdf"),
+       height = 5, width = 8, dpi = 300)
+```
+
+```{r venn-union-cluster-table}
+cluster_table(filtered_df, "4_way_venn_pcadap_outflank_158_SNPs.docx")
+```
