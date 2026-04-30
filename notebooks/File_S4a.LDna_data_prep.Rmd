@@ -433,7 +433,7 @@ We can check how many mosquitoes per population as well
 awk '{print $1}' output/ldna/files/file2.fam | sort | uniq -c | awk '{print $2, $1}'
 ```
 
-I did the analysis using the 3 populations, however the results of MAN were odd because we have only 10 mosquitoes. Therefore, I decided not to do linkage network analysis with MAN. I finished the analysis to see the odd pattern, but I came back and changed the code from this part foward to include only AUT and NEW for the linkage network analysis. I will still create files for each family, however the I will use only the shared SNPs between NEW and AUT. We will not consider MAN. I left it in the code, but we will not use it for comparisons.
+The MAN population comprises only 10 individuals, which is insufficient for reliable LD estimation. Accordingly, linkage network analysis is restricted to the AUT and NEW populations, and only SNPs shared between those two populations are used for comparisons. Population-specific files are generated for all three populations to preserve the complete analytical record, but MAN data are retained for reference only and are not included in downstream comparisons.
 
 Create a file for each of them
 ```{bash}
@@ -672,6 +672,6 @@ do
 done
 ```
 
-I deleted the MAN files for chromosome 2 and 3 since we will not estimate LD for them. I kept chromosome 1 to show how small sample size bias the results.
+MAN files for chromosomes 2 and 3 are excluded from the linkage network analysis given the small sample size (n = 10). The chromosome 1 MAN file is retained to illustrate how an insufficient sample size introduces bias in LD estimation.
 
 

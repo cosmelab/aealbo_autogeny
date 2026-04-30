@@ -874,7 +874,7 @@ rm(list = ls())
 gc()
 ```
 
-I created the chromosomal scale for the linkage networks analysis, now we have to map back the SNPs from clusters of interest to the scaffold scale, then we can check the gene annotation file to find what genes are in the linkage group.
+With chromosomal-scale coordinates established for the linkage network analysis, the next step is to map SNPs from clusters of interest back to scaffold coordinates, enabling cross-referencing with the gene annotation file to identify genes within each linkage group.
 
 Cluster 14 is on chromosome 2 and only in the AUT line. The cluster ID from `extractBranches` (LDna v2.15) is `3215_0.78`. This corresponds to cluster `3139_0.78` from the original analysis with `extractClusters` (LDna v.63). The cluster name changed because v2.15 `LDnaRaw` produces a slightly different dendrogram structure, but the SNP content is the same — all 316 SNPs from the original cluster are contained within this cluster (plus 8 additional SNPs at the cluster boundary). The LD threshold (0.78) is identical.
 ```{r load-aut-chr2-clusters}
